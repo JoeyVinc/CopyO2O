@@ -132,7 +132,6 @@ namespace CopyO2O
             }
 
             OutputLog("End.", true);
-            Console.ReadLine();
             }
 
         public static ListOfEvents GetCalendarItems(Outlook.MAPIFolder calendar, DateTime from, DateTime to)
