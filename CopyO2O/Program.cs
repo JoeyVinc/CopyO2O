@@ -26,6 +26,7 @@ namespace CopyO2O
         {
             DateTime from = DateTime.Now.AddMonths(-1);
             DateTime to = DateTime.Now.AddMonths(1);
+            int clearpast = 0;
             string calenderName_source = "";
             string calenderName_destination = "";
             bool outlookAlreadyRunning = false;
@@ -51,6 +52,9 @@ namespace CopyO2O
                                 to = DateTime.Today.AddDays(int.Parse(parValue));
                             to = to.AddHours(23).AddMinutes(59).AddSeconds(59).AddMilliseconds(999);
                             break;
+                        case "/CLEAR":
+                            clearpast = int.Parse(parValue);
+                            break;
                         case "/LOG": logOutput = true; break;
                     }
                 }
@@ -69,9 +73,10 @@ namespace CopyO2O
                 Console.WriteLine("Parameters:\n"
                     + "/src:<string>           : Name and path of the source calendar\n"
                     + "/dest:<string>          : Name and path of the destination calendar\n"
-                    + "/from:<date>            : First date to sync (DD.MM.YYYY) or relative to today (in days; eg. -10)\n"
-                    + "/to:<date>              : Last date to sync (DD.MM.YYYY) or relative to today (in days; eg. 8)\n"
-                    + "/log                    : Verbose logging");
+                    + "[opt] /from:<date>      : First date to sync (DD.MM.YYYY) or relative to today (in days; eg. -10)\n"
+                    + "[opt] /to:<date>        : Last date to sync (DD.MM.YYYY) or relative to today (in days; eg. 8)\n"
+                    + "[opt] /clear:<days>     : Clear <days> in the past (from 'from' back)\n"
+                    + "[opt] /log              : Verbose logging");
                 System.Environment.Exit(-1);
             }
 
@@ -100,8 +105,13 @@ namespace CopyO2O
             ListOfEvents destEvents = null;
             try
             {
-                DeleteCalendarItems(dest_calendar, from, to);
+                OutputLog("Clear events...", false);
+                DeleteCalendarItems(dest_calendar, from, to, clearpast);
+                OutputLog(" Done.", true);
+
+                OutputLog("Copy events...", false);
                 CreateCalendarItems(dest_calendar, srcEvents);
+                OutputLog(" Done.", true);
 
                 OutputLog("Get all destination events...", false);
                 destEvents = GetCalendarItems(dest_calendar, from, to);
@@ -176,14 +186,14 @@ namespace CopyO2O
             }
         }
 
-        public static void DeleteCalendarItems(Outlook.MAPIFolder calendar, DateTime from, DateTime to)
+        public static void DeleteCalendarItems(Outlook.MAPIFolder calendar, DateTime from, DateTime to, int clearinthepast = 0)
         {
             Outlook.Items tempEvents;
             tempEvents = calendar.Items;
             tempEvents.IncludeRecurrences = true;
             tempEvents.Sort("[Start]");
 
-            string filter = "[Start] >= '" + from.ToString("g") + "'"
+            string filter = "[Start] >= '" + from.AddDays(-clearinthepast).ToString("g") + "'"
                 + " AND " + "[Start] <= '" + to.ToString("g") + "'";
             Outlook.Items eventsFiltered = tempEvents.Restrict(filter);
 
