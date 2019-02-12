@@ -202,7 +202,7 @@ namespace CopyO2O
 
             for (int index = count; index >= 1; index--)
             {
-                tempEvents[index].Delete();
+                eventsFiltered[index].Delete();
             }     
         }
 
