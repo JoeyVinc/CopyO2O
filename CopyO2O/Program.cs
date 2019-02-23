@@ -1,35 +1,35 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Outlook = Microsoft.Office.Interop.Outlook;
-
+using Commonfunctions.Debugging;
 
 namespace CopyO2O
 {
     class Program
     {
-        public class ListOfEvents : List<Outlook.AppointmentItem> { };
-        static bool logOutput = false;
-
-        public static void OutputLog(string value, bool linebreak = false)
-        {
-            if (logOutput)
-            {
-                if (linebreak)
-                    Console.WriteLine(value);
-                else
-                    Console.Write(value);
-            }
-        }
+#if DEBUG
+        static bool logOutput = true;
+#else
+        staticbool logOutput = false;
+#endif
+        static void Log(string value) { Output.Print(value: value, logEnabled: logOutput); }
+        static void LogLn(string value) { Output.PrintLn(value: value, logEnabled: logOutput); }
 
         static void Main(string[] args)
         {
+            const string appId = "cb2c2f84-63f0-49d8-9335-79fcc6050654";
+            List<string> AppPermissions = new List<string> { "User.Read", "Calendars.ReadWrite", "Contacts.ReadWrite" };
+
             DateTime from = DateTime.Now.AddMonths(-1);
             DateTime to = DateTime.Now.AddMonths(1);
             int clearpast = 0;
-            string calenderName_source = "";
-            string calenderName_destination = "";
-            bool outlookAlreadyRunning = false;
+            string calendar_source_Name = "";
+            string calendar_destination_Name = "";
+            string contacts_source_Name = "";
+            string contacts_destination_Name = "";
+
+            bool SyncCAL() { return (calendar_source_Name != "") && (calendar_destination_Name != ""); }
+            bool SyncCON() { return (contacts_source_Name != "") && (contacts_destination_Name != ""); }
 
             try
             {
@@ -41,8 +41,30 @@ namespace CopyO2O
 
                     switch (parameter)
                     {
-                        case "/SRC": calenderName_source = parValue; break;
-                        case "/DEST": calenderName_destination = parValue; break;
+                        case "/CAL":
+                            if (parValue[0] == '"')
+                            {
+                                calendar_source_Name = parValue.Split(';')[0].Trim('"');
+                                calendar_destination_Name = parValue.Split(';')[1].Trim('"');
+                            }
+                            else
+                            {
+                                calendar_source_Name = parValue.Split(';')[0].Trim('\'');
+                                calendar_destination_Name = parValue.Split(';')[1].Trim('\'');
+                            }
+                            break;
+                        case "/CON":
+                            if (parValue[0] == '"')
+                            {
+                                contacts_source_Name = parValue.Split(';')[0].Trim('"');
+                                contacts_destination_Name = parValue.Split(';')[1].Trim('"');
+                            }
+                            else
+                            {
+                                contacts_source_Name = parValue.Split(';')[0].Trim('\'');
+                                contacts_destination_Name = parValue.Split(';')[1].Trim('\'');
+                            }
+                            break;
                         case "/FROM":
                             if (!DateTime.TryParse(parValue, out from))
                                 from = DateTime.Today.AddDays(int.Parse(parValue));
@@ -55,184 +77,145 @@ namespace CopyO2O
                         case "/CLEAR":
                             clearpast = int.Parse(parValue);
                             break;
+                        case "/CLR":
+                            clearpast = int.Parse(parValue);
+                            break;
                         case "/LOG": logOutput = true; break;
                     }
                 }
 
                 //check if mandatory parameters were set stop execution
-                if (calenderName_source.Equals("") || !calenderName_source.Contains("\\") || calenderName_destination.Equals("") || !calenderName_destination.Contains("\\"))
-                    throw new Exception("Calender paths not valid.");
+                if (SyncCAL() && (calendar_source_Name.Equals("") || !calendar_source_Name.Contains("\\")))
+                    throw new Exception("Source calender path not valid.");
+
+                //check if mandatory parameters were set stop execution
+                if (SyncCON() && (contacts_source_Name.Equals("") || !contacts_source_Name.Contains("\\")))
+                    throw new Exception("Source contact folder path not valid.");
 
                 //check if from-date is lower than to-date
                 if (from >= to)
                     throw new Exception("FROM-date (" + from.ToShortDateString() + ") must be lower than TO-date (" + to.ToShortDateString() + ").");
+
+                //if any sync is set
+                if (!SyncCAL() && !SyncCON())
+                    throw new Exception("At least one sync config must be set.");
             }
             catch (Exception e)
             {
-                Console.WriteLine("Error: " + e.Message);
+                Console.WriteLine("Error: " + e.Message + "\n");
                 Console.WriteLine("Parameters:\n"
-                    + "/src:<string>           : Name and path of the source calendar\n"
-                    + "/dest:<string>          : Name and path of the destination calendar\n"
-                    + "[opt] /from:<date>      : First date to sync (DD.MM.YYYY) or relative to today (in days; eg. -10)\n"
-                    + "[opt] /to:<date>        : Last date to sync (DD.MM.YYYY) or relative to today (in days; eg. 8)\n"
-                    + "[opt] /clear:<days>     : Clear <days> in the past (from 'from' back)\n"
-                    + "[opt] /log              : Verbose logging");
+                    + "/CAL:\"<source>\";\"<destination>\" : Calendar source and destination\n"
+                    + "/CON:\"<source>\";\"<destination>\" : Contacts source and destination\n"
+                    + "[opt] /from:<date>              : for calendar: First date to sync (DD.MM.YYYY) or relative to today (in days; eg. -10)\n"
+                    + "[opt] /to:<date>                : for calendar: Last date to sync (DD.MM.YYYY) or relative to today (in days; eg. 8)\n"
+                    + "[opt] /clear:<days>             : for calendar: Clear <days> in the past (from 'from' back)\n"
+                    + "[opt] /log                      : Verbose logging\n\n"
+                    + "Example: CopyO2O /CAL:\"Hans.Mustermann@company.com\\Calendar\";\"Business\" /from:-7 /to:30 /clear:14");
                 System.Environment.Exit(-1);
             }
 
-            string overview = "Start sync of "
-                + calenderName_source + " >> " + calenderName_destination
-                + " from " + from.ToShortDateString() + " to " + to.ToShortDateString();
+            string overview = "Start sync of \n";
+            if (SyncCAL())
+            {
+                overview += "Calendar: '" + calendar_source_Name + "' >> '" + calendar_destination_Name + "'"
+                + " from " + from.ToShortDateString() + " to " + to.ToShortDateString() + "\n";
+            }
+            if (SyncCON())
+            {
+                overview += "Contacts: '" + contacts_source_Name + "' >> '" + contacts_destination_Name + "'";
+            }
             Console.WriteLine(overview);
 
-            OutputLog("Open Outlook...", false);
-            Outlook.Application outlookApp;
+            Outlook.Application outlookApp = null;
+            Office365.Calendars outlookCloud_Cals = null;
+            Office365.ContactFolders outlookCloud_ConFolds = null;
             try
             {
-                outlookApp = (Outlook.Application)System.Runtime.InteropServices.Marshal.GetActiveObject("Outlook.Application");
-                outlookAlreadyRunning = true;
+                Log("Open Outlook...");
+                outlookApp = new Outlook.Application();
+                LogLn(" Done.");
+
+                //if calendar values should be synced
+                if (SyncCAL())
+                {
+                    Log("Open Office365...");
+                    outlookCloud_Cals = new Office365.Calendars(appId, AppPermissions);
+                    Office365.Calendar o365_dest_calendar = outlookCloud_Cals.GetCalendar(calendar_destination_Name);
+                    LogLn(" Done.");
+
+                    Log("Get all source events...");
+                    Outlook.Calendar src_calendar = outlookApp.GetCalendar(calendar_source_Name);
+                    Events srcEvents = src_calendar.GetItems(from, to);
+                    LogLn(" Done. " + srcEvents.Count.ToString() + " found.");
+
+                    Log("Clear online events...");
+                    o365_dest_calendar.DeleteItemsAsync(from.AddDays(-clearpast), to).Wait();
+                    LogLn(" Done.");
+
+                    Log("Copy events...");
+                    o365_dest_calendar.CreateItems(srcEvents);
+                    LogLn(" Done.");
+
+                    //exec only if verbose logging enabled
+                    if (logOutput)
+                    {
+                        LogLn("Get all destination events... Done. " + o365_dest_calendar.GetItemsAsync(from, to).Result.Count.ToString() + " found.");
+                    }
+                }
+
+                //if contacts should be synced
+                if (SyncCON())
+                {
+                    Log("Open Office365...");
+                    outlookCloud_ConFolds = new Office365.ContactFolders(appId, AppPermissions);
+                    Office365.ContactFolder o365_dest_contactfolder = outlookCloud_ConFolds.GetContactFolder(contacts_destination_Name);
+                    LogLn(" Done.");
+
+                    Log("Get all source contacts...");
+                    Outlook.ContactFolder src_contactfolder = outlookApp.GetContactFolder(contacts_source_Name);
+                    ContactsType srcContacts = src_contactfolder.GetItems();
+                    LogLn(" Done. " + srcContacts.Count.ToString() + " found.");
+
+                    Log("Clear online contacts...");
+                    o365_dest_contactfolder.DeleteItemsAsync().Wait();
+                    LogLn(" Done.");
+
+                    Log("Copy contacts...");
+                    o365_dest_contactfolder.CreateItems(srcContacts);
+                    LogLn(" Done.");
+
+                    //exec only if verbose logging enabled
+                    if (logOutput)
+                    {
+                        LogLn("Get all destination contacts... Done. " + o365_dest_contactfolder.GetItemsAsync().Result.Count.ToString() + " found.");
+                    }
+                }
             }
-            catch { outlookApp = new Outlook.Application(); }
-
-            Outlook.MAPIFolder src_calendar = GetCalendar(outlookApp, calenderName_source);
-            Outlook.MAPIFolder dest_calendar = GetCalendar(outlookApp, calenderName_destination);
-            OutputLog(" Done.", true);
-
-            OutputLog("Get all source events...", false);
-            ListOfEvents srcEvents = GetCalendarItems(src_calendar, from, to);
-            OutputLog(" Done. " + srcEvents.Count.ToString() + " found.", true);
-
-            ListOfEvents destEvents = null;
-            try
+            catch (Exception e)
             {
-                OutputLog("Clear events...", false);
-                DeleteCalendarItems(dest_calendar, from, to, clearpast);
-                OutputLog(" Done.", true);
-
-                OutputLog("Copy events...", false);
-                CreateCalendarItems(dest_calendar, srcEvents);
-                OutputLog(" Done.", true);
-
-                OutputLog("Get all destination events...", false);
-                destEvents = GetCalendarItems(dest_calendar, from, to);
-                OutputLog(" Done. " + destEvents.Count.ToString() + " found.", true);
+                Console.WriteLine(" Error occured: " + e.InnerException.Message);
+                throw;
             }
             finally
             {
-                outlookApp.Session.SendAndReceive(false);
-
-                //if outlook was not already running
-                if (!outlookAlreadyRunning)
+                Log("Close Outlook...");
+                if (outlookApp != null)
                 {
-                    OutputLog("Close Outlook...");
-                    outlookApp.Quit();
-
-                    outlookApp = null;
-                    src_calendar = null;
-                    dest_calendar = null;
-                    srcEvents = null;
-                    destEvents = null;
-                    GC.Collect();
-                    GC.WaitForPendingFinalizers();
-                    GC.Collect();
-                    GC.WaitForPendingFinalizers();
-
-                    OutputLog(" Done.", true);
+                    try { outlookApp.Quit(); }
+                    catch (Exception e) { throw e; };
                 }
+                LogLn(" Done.");
+
+                Log("Disconnect Office365...");
+                //outlookCloud.Disconnect(); //not yet implemented or neccessary (?!)
+                LogLn(" Done.");
             }
 
-            OutputLog("End.", true);
-            }
+            LogLn("End.");
 
-        public static ListOfEvents GetCalendarItems(Outlook.MAPIFolder calendar, DateTime from, DateTime to)
-        {
-            Outlook.Items tempEvents;
-            tempEvents = calendar.Items;
-            tempEvents.IncludeRecurrences = true;
-            tempEvents.Sort("[Start]");
-
-            string filter = "[Start] >= '" + from.ToString("g") + "'"
-                + " AND " + "[Start] <= '" + to.ToString("g") + "'";
-            Outlook.Items eventsFiltered = tempEvents.Restrict(filter);
-
-            ListOfEvents result = new ListOfEvents();
-            foreach (Outlook.AppointmentItem aptmItem in eventsFiltered)
-            {
-                result.Add(aptmItem);
-            }
-
-            return result;
-        }
-
-        public static void CreateCalendarItems(Outlook.MAPIFolder calendar, ListOfEvents newItems)
-        {
-            foreach (Outlook.AppointmentItem item in newItems)
-            {
-                Outlook.AppointmentItem newEvent = calendar.Items.Add();
-                newEvent.StartTimeZone = item.StartTimeZone;
-                newEvent.StartUTC = item.StartUTC;
-                newEvent.EndTimeZone = item.EndTimeZone;
-                newEvent.EndUTC = item.EndUTC;
-
-                newEvent.Subject = item.Subject;
-                newEvent.Location = item.Location;
-                newEvent.AllDayEvent = item.AllDayEvent;
-
-                newEvent.ReminderMinutesBeforeStart = item.ReminderMinutesBeforeStart;
-                newEvent.ReminderSet = item.ReminderSet;
-                newEvent.BusyStatus = item.BusyStatus;
-
-                newEvent.Save();
-            }
-        }
-
-        public static void DeleteCalendarItems(Outlook.MAPIFolder calendar, DateTime from, DateTime to, int clearinthepast = 0)
-        {
-            Outlook.Items tempEvents;
-            tempEvents = calendar.Items;
-            tempEvents.IncludeRecurrences = true;
-            tempEvents.Sort("[Start]");
-
-            string filter = "[Start] >= '" + from.AddDays(-clearinthepast).ToString("g") + "'"
-                + " AND " + "[Start] <= '" + to.ToString("g") + "'";
-            Outlook.Items eventsFiltered = tempEvents.Restrict(filter);
-
-            int count = 0;
-            foreach (Outlook.AppointmentItem tmp in eventsFiltered) count++;
-
-            for (int index = count; index >= 1; index--)
-            {
-                eventsFiltered[index].Delete();
-            }     
-        }
-
-        public static void DeleteCalendarItems(Outlook.MAPIFolder calendar)
-        {
-            for (int index = calendar.Items.Count; index >= 1; index--)
-            {
-                calendar.Items[index].delete();
-            }
-        }
-
-
-        /// <summary>
-        /// Resolves the given calendar path and return the corresponding MAPI folder in a local outlook instance
-        /// </summary>
-        /// <param name="app">local Outlook application</param>
-        /// <param name="calendarPath">path of calendar (Profil\Folder\Subfolder\...)</param>
-        /// <returns>returns a MAPI folder (calendar)</returns>
-        /// 
-        public static Outlook.MAPIFolder GetCalendar(Outlook.Application app, string calendarPath)
-        {
-            string[] names = calendarPath.Split('\\');
-            Outlook.MAPIFolder result = app.Session.Folders[names[0]];
-
-            foreach (string name in names.Skip(1))
-            {
-                result = result.Folders[name];
-            }
-
-            return result;
+#if DEBUG
+            Console.ReadLine();
+#endif
         }
     }
 }
