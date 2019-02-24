@@ -28,6 +28,7 @@ namespace CopyO2O
             string calendar_destination_Name = "";
             string contacts_source_Name = "";
             string contacts_destination_Name = "";
+            string proxy = "";
 
             bool SyncCAL() { return (calendar_source_Name != "") && (calendar_destination_Name != ""); }
             bool SyncCON() { return (contacts_source_Name != "") && (contacts_destination_Name != ""); }
@@ -81,6 +82,9 @@ namespace CopyO2O
                         case "/CLR":
                             clearpast = Math.Abs(int.Parse(parValue));
                             break;
+                        case "/PROXY":
+                            proxy = parValue;
+                            break;
                         case "/LOG": logOutput = true; break;
                     }
                 }
@@ -110,6 +114,7 @@ namespace CopyO2O
                     + "[opt] /from:<date>              : for calendar: First date to sync (DD.MM.YYYY) or relative to today (in days; eg. -10)\n"
                     + "[opt] /to:<date>                : for calendar: Last date to sync (DD.MM.YYYY) or relative to today (in days; eg. 8)\n"
                     + "[opt] /clear:<days>             : for calendar: Clear <days> in the past (from 'from' back)\n"
+                    + "[opt] /proxy:<address>          : set if an explicit proxy should be used for connection\n"
                     + "[opt] /log                      : Verbose logging\n\n"
                     + "Example: CopyO2O /CAL:\"Hans.Mustermann@company.com\\Calendar\";\"Business\" /from:-7 /to:30 /clear:14");
                 System.Environment.Exit(-1);
@@ -137,8 +142,8 @@ namespace CopyO2O
                 LogLn(" Done.");
 
                 //set proxy if necessary
-                System.Net.WebProxy proxy = new System.Net.WebProxy("localhost:8888", true);
-                System.Net.WebRequest.DefaultWebProxy = proxy;
+                if (proxy != "")
+                { System.Net.WebRequest.DefaultWebProxy = new System.Net.WebProxy(proxy, true); }
 
                 //if calendar values should be synced
                 if (SyncCAL())
