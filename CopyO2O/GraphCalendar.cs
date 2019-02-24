@@ -21,6 +21,7 @@ namespace CopyO2O.Office365
 
         public bool IsValid { get; } = false; //TRUE if the graph could be successfully connected
         public int MaxItemsPerRequest = 10;
+        public int DefaultRetryDelay = 500;
 
         public MSGraph(string appId, List<string> scope)
         {
@@ -110,7 +111,7 @@ namespace CopyO2O.Office365
 
             } while (requestNextPage);
 
-            return "";
+            throw new Exception("Calendar named '" + CalendarName + "' could not be found!");
         }
 
         /// <summary>
@@ -213,8 +214,8 @@ namespace CopyO2O.Office365
         private string calendarId = "";
         private GraphServiceClient graphService;
         private Dictionary<string, string> deltaSets = new Dictionary<string, string>();
-
-        public int MaxItemsPerRequest = 10;
+        private int DefaultRetryDelay = 500;
+        private int MaxItemsPerRequest = 10;
 
         public Calendar(GraphServiceClient GraphClient, string Name, string Id)
         {
@@ -225,9 +226,7 @@ namespace CopyO2O.Office365
 
         public async Task<Microsoft.Graph.Event> GetItemAsync(string EventId)
         {
-            if (calendarId != "")
-                return await graphService.Me.Calendars[calendarId].Events[EventId].Request().GetAsync();
-            else return null;
+            return await graphService.Me.Calendars[calendarId].Events[EventId].Request().GetAsync();
         }
 
         public async Task<List<Microsoft.Graph.Event>> GetItemsAsync(DateTime From, DateTime To)
@@ -322,16 +321,31 @@ namespace CopyO2O.Office365
 
         public async Task<Microsoft.Graph.Event> CreateItemAsync(Microsoft.Graph.Event item)
         {
-            //if calendar exists
-            if (calendarId != "")
+            bool retry = false;
+
+            do
             {
                 try
+                { return await graphService.Me.Calendars[calendarId].Events.Request().AddAsync(item); }
+                catch (Microsoft.Graph.ServiceException e)
                 {
-                    return await graphService.Me.Calendars[calendarId].Events.Request().AddAsync(item);
+                    retry = false;
+
+                    //if service is busy, too many connection, aso. retry request
+                    if (e.StatusCode.ToString() == "429")
+                    {
+                        int sleeptime = DefaultRetryDelay;
+
+                        if (e.ResponseHeaders.RetryAfter != null)
+                            sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
+
+                        System.Threading.Thread.Sleep(sleeptime);
+                        retry = true;
+                    }
                 }
-                catch { return null; }
-            }
-            else { return null; }
+            } while (retry == true);
+
+            return null;
         }
 
         public void CreateItems(Events items)
@@ -372,43 +386,78 @@ namespace CopyO2O.Office365
                 tasks.Add(this.CreateItemAsync(newEvent));
             }
 
-            int i = 0;
-            while (tasks.Count > 0)
-            {
-                if (tasks[i].Status == TaskStatus.RanToCompletion)
-                    tasks.RemoveAt(i);
-
-                i++;
-                if (i >= tasks.Count) i = 0;
-            }
+            Task.WaitAll(tasks.ToArray());
         }
 
         public async Task UpdateItemAsync(string eventId, Microsoft.Graph.Event updatedItem)
         {
-            await graphService.Me.Events[eventId].Request().UpdateAsync(updatedItem);
+            bool retry = false;
+
+            do
+            {
+                try
+                { await graphService.Me.Events[eventId].Request().UpdateAsync(updatedItem); }
+                catch (Microsoft.Graph.ServiceException e)
+                {
+                    retry = false;
+
+                    //if service is busy, too many connection, aso. retry request
+                    if (e.StatusCode.ToString() == "429")
+                    {
+                        int sleeptime = DefaultRetryDelay;
+
+                        if (e.ResponseHeaders.RetryAfter != null)
+                            sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
+
+                        System.Threading.Thread.Sleep(sleeptime);
+                        retry = true;
+                    }
+                }
+            } while (retry == true);
         }
 
         public async Task DeleteItemAsync(string eventId)
         {
-            await graphService.Me.Events[eventId].Request().DeleteAsync();
-        }
+            bool retry = false;
 
-        public async Task<bool> DeleteItemsAsync(DateTime from, DateTime to)
-        {
-            //if calendar exists
-            if (calendarId != "")
+            do
             {
                 try
+                { await graphService.Me.Events[eventId].Request().DeleteAsync(); }
+                catch (Microsoft.Graph.ServiceException e)
                 {
-                    List<Microsoft.Graph.Event> items = this.GetItemsAsync(from, to).Result;
-                    foreach (Microsoft.Graph.Event item in items)
-                    { await this.DeleteItemAsync(item.Id); }
+                    retry = false;
 
-                    return true;
+                    //if service is busy, too many connection, aso. retry request
+                    if (e.StatusCode.ToString() == "429")
+                    {
+                        int sleeptime = DefaultRetryDelay;
+
+                        if (e.ResponseHeaders.RetryAfter != null)
+                            sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
+
+                        System.Threading.Thread.Sleep(sleeptime);
+                        retry = true;
+                    }
                 }
-                catch { return false; }
+            } while (retry == true);
+        }
+
+        public bool DeleteItems(DateTime from, DateTime to)
+        {
+            List<Task> deleteThreads = new List<Task>();
+
+            try
+            {
+                List<Microsoft.Graph.Event> items = this.GetItemsAsync(from, to).Result;
+                foreach (Microsoft.Graph.Event item in items)
+                { deleteThreads.Add(this.DeleteItemAsync(item.Id)); }
+
+                Task.WaitAll(deleteThreads.ToArray());
+                return true;
             }
-            else return false;
+            catch (Microsoft.Graph.ServiceException e)
+            { return false; }
         }
     }
 
@@ -455,7 +504,7 @@ namespace CopyO2O.Office365
 
             } while (requestNextPage);
 
-            return "";
+            throw new Exception("Contact-folder named '" + ContactFolderName + "' could not be found!");
         }
 
         /// <summary>
@@ -556,9 +605,9 @@ namespace CopyO2O.Office365
         private string contactFolderName = "";
         private string contactFolderId = "";
         private GraphServiceClient graphService;
-        private Dictionary<string, string> deltaSets = new Dictionary<string, string>();
 
-        public int MaxItemsPerRequest = 10;
+        private int MaxItemsPerRequest = 10;
+        private int DefaultRetryDelay = 500;
 
         public ContactFolder(GraphServiceClient GraphClient, string Name, string Id)
         {
@@ -567,18 +616,42 @@ namespace CopyO2O.Office365
             contactFolderId = Id;
         }
 
-        public async Task<Microsoft.Graph.Contact> GetItemAsync(string ItemId)
+        public Microsoft.Graph.Contact this[string ItemId]
         {
-            if (contactFolderId != "")
-                return await graphService.Me.ContactFolders[contactFolderId].Contacts[ItemId].Request().GetAsync();
-            else return null;
+            get
+            {
+                bool retry = false;
+
+                do
+                {
+                    try
+                    { return graphService.Me.ContactFolders[contactFolderId].Contacts[ItemId].Request().GetAsync().Result; }
+                    catch (Microsoft.Graph.ServiceException e)
+                    {
+                        retry = false;
+
+                        //if service is busy, too many connection, aso. retry request
+                        if (e.StatusCode.ToString() == "429")
+                        {
+                            int sleeptime = DefaultRetryDelay;
+
+                            if (e.ResponseHeaders.RetryAfter != null)
+                                sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
+
+                            System.Threading.Thread.Sleep(sleeptime);
+                            retry = true;
+                        }
+                    }
+                } while (retry == true);
+
+                return null;                
+            }
         }
 
         public async Task<List<Microsoft.Graph.Contact>> GetItemsAsync()
         {
             List<Microsoft.Graph.Contact> result = new List<Microsoft.Graph.Contact>();
 
-            //request all events expanded (contactFolderview -> resolved recurring events)
             List<QueryOption> options = new List<QueryOption>();
             options.Add(new QueryOption("$top", MaxItemsPerRequest.ToString()));
 
@@ -602,19 +675,34 @@ namespace CopyO2O.Office365
 
         public async Task<Microsoft.Graph.Contact> CreateItemAsync(Microsoft.Graph.Contact item)
         {
-            //if contactFolder exists
-            if (contactFolderId != "")
+            bool retry = false;
+
+            do
             {
                 try
+                { return await graphService.Me.ContactFolders[contactFolderId].Contacts.Request().AddAsync(item); }
+                catch (Microsoft.Graph.ServiceException e)
                 {
-                    return await graphService.Me.ContactFolders[contactFolderId].Contacts.Request().AddAsync(item);
+                    retry = false;
+
+                    //if service is busy, too many connection, aso. retry request
+                    if (e.StatusCode.ToString() == "429")
+                    {
+                        int sleeptime = DefaultRetryDelay;
+
+                        if (e.ResponseHeaders.RetryAfter != null)
+                            sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
+
+                        System.Threading.Thread.Sleep(sleeptime);
+                        retry = true;
+                    }
                 }
-                catch { return null; }
-            }
-            else { return null; }
+            } while (retry == true);
+
+            return null;
         }
 
-        public void CreateItems(ContactsType items)
+        public void CreateItems(ContactCollectionType items)
         {
             List<Task> tasks = new List<Task>();
             List<Task> pictureUploads = new List<Task>();
@@ -623,9 +711,12 @@ namespace CopyO2O.Office365
             {
                 Microsoft.Graph.Contact newItem = new Microsoft.Graph.Contact();
                 newItem.FileAs = item.SaveAs;
+                newItem.Title = item.Title;
                 newItem.DisplayName = item.DisplayName;
                 newItem.GivenName = item.GivenName ?? "";
+                newItem.MiddleName = item.MiddleName;
                 newItem.Surname = item.Surname;
+                newItem.Generation = item.AddName;
                 newItem.CompanyName = item.Company;
                 newItem.Birthday = item.Birthday;
                 newItem.PersonalNotes = item.Notes;
@@ -635,7 +726,7 @@ namespace CopyO2O.Office365
                     newItem.Categories = item.Categories.Select(x => x.Name);
 
                 //if at least one private address
-                if ((item.PrivateLocation.Street != null)||(item.PrivateLocation.Zip != null) || (item.PrivateLocation.City != null) || (item.PrivateLocation.Country != null))
+                if ((item.PrivateLocation.Street != null) || (item.PrivateLocation.Zip != null) || (item.PrivateLocation.City != null) || (item.PrivateLocation.Country != null))
                 {
                     newItem.HomeAddress = new PhysicalAddress();
                     newItem.HomeAddress.Street = item.PrivateLocation.Street + " " + item.PrivateLocation.Number;
@@ -645,11 +736,11 @@ namespace CopyO2O.Office365
                 }
 
                 //handle mail adresses
-                    List<EmailAddress> tmpEMailAddressInfo = new List<EmailAddress>();
-                    if (item.PrivateMailAddress.Address != null) tmpEMailAddressInfo.Add(new EmailAddress() { Address = item.PrivateMailAddress.Address, Name = item.PrivateMailAddress.Title });
-                    if (item.BusinessMailAddress.Address != null) tmpEMailAddressInfo.Add(new EmailAddress() { Address = item.BusinessMailAddress.Address, Name = item.BusinessMailAddress.Title });
+                List<EmailAddress> tmpEMailAddressInfo = new List<EmailAddress>();
+                if (item.PrivateMailAddress.Address != null) tmpEMailAddressInfo.Add(new EmailAddress() { Address = item.PrivateMailAddress.Address, Name = item.PrivateMailAddress.Title });
+                if (item.BusinessMailAddress.Address != null) tmpEMailAddressInfo.Add(new EmailAddress() { Address = item.BusinessMailAddress.Address, Name = item.BusinessMailAddress.Title });
 
-                    if (tmpEMailAddressInfo.Count > 0)                        newItem.EmailAddresses = tmpEMailAddressInfo;
+                if (tmpEMailAddressInfo.Count > 0) newItem.EmailAddresses = tmpEMailAddressInfo;
 
                 //handle phone numbers
                 List<String> tmpBusinessPhoneNumberInfo = new List<String>();
@@ -673,75 +764,90 @@ namespace CopyO2O.Office365
                     newItem.BusinessAddress.CountryOrRegion = item.BusinessLocation.Country;
                 }
 
-/*                //add picture if available
-                if (item.PictureTmpFilename != null)
-                {
-                    //newItem.Photo = UpdatePhoto(newItem);
-                    graphService.Me.Contacts[9].Photo.Content.Request().p
-                }
-                */
-                tasks.Add(this.CreateItemAsync(newItem));
+                tasks.Add(this.CreateItemAsync(newItem).ContinueWith(async (i) =>
+                    {
+                        if (item.HasPhoto)
+                        {
+                            System.IO.FileStream file = new System.IO.FileStream(item.PictureTmpFilename, System.IO.FileMode.Open);
+                            await graphService.Me.Contacts[i.Result.Id].Photo.Content.Request().PutAsync(file);
+                        }
+                    }));
             }
 
-            int i = 0;
-            while (tasks.Count > 0)
-            {
-                if (tasks[i].Status == TaskStatus.RanToCompletion)
-                    tasks.RemoveAt(i);
-
-                i++;
-                if (i >= tasks.Count) i = 0;
-            }
+            Task.WaitAll(tasks.ToArray());
         }
 
         public async Task UpdateItemAsync(string itemId, Microsoft.Graph.Contact updatedItem)
         {
-            await graphService.Me.Contacts[itemId].Request().UpdateAsync(updatedItem);
+            bool retry = false;
+
+            do
+            {
+                try
+                { await graphService.Me.Contacts[itemId].Request().UpdateAsync(updatedItem); }
+                catch (Microsoft.Graph.ServiceException e)
+                {
+                    retry = false;
+
+                    //if service is busy, too many connection, aso. retry request
+                    if (e.StatusCode.ToString() == "429")
+                    {
+                        int sleeptime = DefaultRetryDelay;
+
+                        if (e.ResponseHeaders.RetryAfter != null)
+                            sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
+
+                        System.Threading.Thread.Sleep(sleeptime);
+                        retry = true;
+                    }
+                }
+            } while (retry == true);
         }
 
         public async Task DeleteItemAsync(string itemId)
         {
-            await graphService.Me.Contacts[itemId].Request().DeleteAsync();
-        }
+            bool retry = false;
 
-        public async Task<bool> DeleteItemsAsync()
-        {
-            //if contactFolder exists
-            if (contactFolderId != "")
+            do
             {
                 try
+                { await graphService.Me.Contacts[itemId].Request().DeleteAsync(); }
+                catch (Microsoft.Graph.ServiceException e)
                 {
-                    List<Microsoft.Graph.Contact> items = this.GetItemsAsync().Result;
-                    foreach (Microsoft.Graph.Contact item in items)
-                    { await this.DeleteItemAsync(item.Id); }
+                    retry = false;
 
-                    return true;
+                    //if service is busy, too many connection, aso. retry request
+                    if (e.StatusCode.ToString() == "429")
+                    {
+                        int sleeptime = DefaultRetryDelay;
+
+                        if (e.ResponseHeaders.RetryAfter != null)
+                            sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
+
+                        System.Threading.Thread.Sleep(sleeptime);
+                        retry = true;
+                    }
                 }
-                catch { return false; }
+            } while (retry == true);
+        }
+
+        public bool DeleteItems()
+        {
+            List<Task> deleteThreads = new List<Task>();
+
+            try
+            {
+                List<Microsoft.Graph.Contact> items = this.GetItemsAsync().Result;
+                foreach (Microsoft.Graph.Contact item in items)
+                { deleteThreads.Add(this.DeleteItemAsync(item.Id)); }
+
+                Task.WaitAll(deleteThreads.ToArray());
+                return true;
             }
-            else return false;
+            catch (Microsoft.Graph.ServiceException e)
+            {
+                return false;
+            }
         }
     }
-
-    public class Contact
-    {
-        //private string contactName = "";
-        private string contactId = "";
-        private GraphServiceClient graphService;
-
-        public Contact (GraphServiceClient GraphService, string ContactID)
-        {
-            this.contactId = ContactID;
-            this.graphService = GraphService;
-        }
-
-        public async Task UpdatePhotoAsync(string FileName)
-        {
-            ProfilePhoto tmpPhoto = new ProfilePhoto();
-            tmpPhoto.AdditionalData.Add("image/jpeg", "poing");
-            await graphService.Me.Contacts[contactId].Photo.Request().UpdateAsync(tmpPhoto);
-        }
-        
-    }
-
 }

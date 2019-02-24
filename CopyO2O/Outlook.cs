@@ -164,19 +164,18 @@ namespace CopyO2O.Outlook
             mAPI = null;
         }
 
-        public ContactsType GetItems()
+        public ContactCollectionType GetItems()
         {
-            /* OutlookInterop.Items items;
-             items = mAPI.Items;
-             items.Sort("[DisplayName]");*/
-
-            ContactsType result = new ContactsType();
-            foreach (OutlookInterop.ContactItem item in mAPI.Items)
+            ContactCollectionType result = new ContactCollectionType();
+            foreach (OutlookInterop.ContactItem item in mAPI.Items.OfType<OutlookInterop.ContactItem>())
             {
                 ContactType tmpItem = new ContactType();
                 tmpItem.DisplayName = item.FullName;
+                tmpItem.Title = item.Title;
                 tmpItem.Surname = item.LastName;
+                tmpItem.MiddleName = item.MiddleName;
                 tmpItem.GivenName = item.FirstName;
+                tmpItem.AddName = item.Suffix;
                 tmpItem.Company = item.CompanyName;
                 tmpItem.VIP = (item.Importance == OutlookInterop.OlImportance.olImportanceHigh);
                 tmpItem.SaveAs = item.FileAs;

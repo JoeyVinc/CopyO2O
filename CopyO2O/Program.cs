@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Commonfunctions.Debugging;
+using System.Diagnostics;
 
 namespace CopyO2O
 {
@@ -10,7 +11,7 @@ namespace CopyO2O
 #if DEBUG
         static bool logOutput = true;
 #else
-        staticbool logOutput = false;
+        static bool logOutput = false;
 #endif
         static void Log(string value) { Output.Print(value: value, logEnabled: logOutput); }
         static void LogLn(string value) { Output.PrintLn(value: value, logEnabled: logOutput); }
@@ -75,10 +76,10 @@ namespace CopyO2O
                             to = to.AddHours(23).AddMinutes(59).AddSeconds(59).AddMilliseconds(999);
                             break;
                         case "/CLEAR":
-                            clearpast = int.Parse(parValue);
+                            clearpast = Math.Abs(int.Parse(parValue));
                             break;
                         case "/CLR":
-                            clearpast = int.Parse(parValue);
+                            clearpast = Math.Abs(int.Parse(parValue));
                             break;
                         case "/LOG": logOutput = true; break;
                     }
@@ -135,6 +136,10 @@ namespace CopyO2O
                 outlookApp = new Outlook.Application();
                 LogLn(" Done.");
 
+                //set proxy if necessary
+                System.Net.WebProxy proxy = new System.Net.WebProxy("localhost:8888", true);
+                System.Net.WebRequest.DefaultWebProxy = proxy;
+
                 //if calendar values should be synced
                 if (SyncCAL())
                 {
@@ -149,7 +154,7 @@ namespace CopyO2O
                     LogLn(" Done. " + srcEvents.Count.ToString() + " found.");
 
                     Log("Clear online events...");
-                    o365_dest_calendar.DeleteItemsAsync(from.AddDays(-clearpast), to).Wait();
+                    o365_dest_calendar.DeleteItems(from.AddDays(-clearpast), to);
                     LogLn(" Done.");
 
                     Log("Copy events...");
@@ -159,7 +164,7 @@ namespace CopyO2O
                     //exec only if verbose logging enabled
                     if (logOutput)
                     {
-                        LogLn("Get all destination events... Done. " + o365_dest_calendar.GetItemsAsync(from, to).Result.Count.ToString() + " found.");
+                        LogLn("Get all destination events... Done. " + o365_dest_calendar.GetItemsAsync(from.AddDays(-clearpast), to).Result.Count.ToString() + " found.");
                     }
                 }
 
@@ -173,11 +178,11 @@ namespace CopyO2O
 
                     Log("Get all source contacts...");
                     Outlook.ContactFolder src_contactfolder = outlookApp.GetContactFolder(contacts_source_Name);
-                    ContactsType srcContacts = src_contactfolder.GetItems();
+                    ContactCollectionType srcContacts = src_contactfolder.GetItems();
                     LogLn(" Done. " + srcContacts.Count.ToString() + " found.");
 
                     Log("Clear online contacts...");
-                    o365_dest_contactfolder.DeleteItemsAsync().Wait();
+                    o365_dest_contactfolder.DeleteItems();
                     LogLn(" Done.");
 
                     Log("Copy contacts...");
@@ -193,7 +198,10 @@ namespace CopyO2O
             }
             catch (Exception e)
             {
-                Console.WriteLine(" Error occured: " + e.InnerException.Message);
+                if (e.InnerException != null)
+                    Console.WriteLine(" Error occured: " + e.InnerException.Message);
+                else
+                    Console.WriteLine(" Error occured: " + e.Message);
                 throw;
             }
             finally

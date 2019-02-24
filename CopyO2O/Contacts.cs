@@ -27,12 +27,17 @@ namespace CopyO2O
         public string Title;
     }
 
-    public struct ContactType
+    public class ContactType
     {
+        public Boolean HasPhoto { get { return this.PictureTmpFilename != null; } }
+
         public string SaveAs;
         public string DisplayName;
+        public string Title;
         public string GivenName;
+        public string MiddleName;
         public string Surname;
+        public string AddName;
         public string Company;
         public DateTime? Birthday;
         public DateTime? AnniversaryDay;
@@ -55,5 +60,5 @@ namespace CopyO2O
         public string PictureTmpFilename;
     }
 
-    public class ContactsType : List<ContactType> { }
+    public class ContactCollectionType : List<ContactType> { }
 }
