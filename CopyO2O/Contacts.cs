@@ -44,6 +44,7 @@ namespace CopyO2O
         public Boolean VIP;
         public List<Category> Categories;
         public string Notes;
+        public string IMAddress;
 
         public Address PrivateLocation;
         public EMail PrivateMailAddress;

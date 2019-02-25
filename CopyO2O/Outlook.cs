@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using OutlookInterop = Microsoft.Office.Interop.Outlook;
+using System.Diagnostics;
 
 namespace CopyO2O.Outlook
 {
@@ -164,6 +165,55 @@ namespace CopyO2O.Outlook
             mAPI = null;
         }
 
+        private EMail GetMailStruct(string displayName, string address, string type)
+        {
+            EMail result = new EMail();
+
+            //if no valid mail data exit without calc
+            if ((type ?? "") == "")
+                return result;
+
+            result.Title = displayName;
+            result.Address = null;
+
+            //if SMTP-address is given
+            if (type.ToUpper() == "SMTP")
+            {
+                result.Address = address;
+            }
+            //if EXCHANGE-address
+            else if (type.ToUpper() == "EX")
+            {
+                Microsoft.Office.Interop.Outlook.MailItem tmpMail = null;
+                try
+                {
+                    tmpMail = mAPI.Application.CreateItem(OutlookInterop.OlItemType.olMailItem);
+                    tmpMail.To = address;
+                    if (tmpMail.Recipients.ResolveAll())
+                    {
+                        foreach (OutlookInterop.Recipient tmpRcip in tmpMail.Recipients)
+                        {
+                            OutlookInterop.ExchangeUser exchangeUser = tmpRcip.AddressEntry.GetExchangeUser();
+                            if (exchangeUser != null)
+                                result.Address = exchangeUser.PrimarySmtpAddress;
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.WriteLine("ERROR GetMailStruct " + e.Message);
+                }
+                finally
+                {
+                    if (tmpMail != null)
+                        tmpMail.Close(OutlookInterop.OlInspectorClose.olDiscard);
+                    tmpMail = null;
+                }
+            }
+
+            return result;
+        }
+
         public ContactCollectionType GetItems()
         {
             ContactCollectionType result = new ContactCollectionType();
@@ -182,10 +232,15 @@ namespace CopyO2O.Outlook
                 if (item.Birthday.Year < 4000) tmpItem.Birthday = item.Birthday;
                 if (item.Anniversary.Year < 4000) tmpItem.AnniversaryDay = item.Anniversary;
                 tmpItem.Notes = item.Body;
+                tmpItem.IMAddress = item.IMAddress;
 
+                //==========================
                 //private data
-                tmpItem.PrivateMailAddress.Address = item.Email1Address;
-                tmpItem.PrivateMailAddress.Title = item.Email1DisplayName;
+                tmpItem.PrivateMailAddress = GetMailStruct(item.Email1DisplayName, item.Email1Address, item.Email1AddressType);
+                //if no valid mail address could be delivered
+                if ((tmpItem.PrivateMailAddress.Address ?? "") == "")
+                    tmpItem.PrivateMailAddress.Address = (tmpItem.IMAddress ?? "").Contains('@') ? tmpItem.IMAddress : null;
+
                 tmpItem.PrivateMobileNumber = item.MobileTelephoneNumber;
                 tmpItem.PrivatePhoneNumber = item.HomeTelephoneNumber;
                 tmpItem.PrivateFaxNumber = item.HomeFaxNumber;
@@ -200,9 +255,13 @@ namespace CopyO2O.Outlook
                     tmpItem.PrivateLocation.Country = item.HomeAddressCountry;
                 }
 
+                //==========================
                 //business data
-                tmpItem.BusinessMailAddress.Address = item.Email2Address;
-                tmpItem.BusinessMailAddress.Title = item.Email2DisplayName;
+                tmpItem.BusinessMailAddress = GetMailStruct(item.Email2DisplayName, item.Email2Address, item.Email2AddressType);
+                //if no valid mail address could be delivered
+                if ((tmpItem.BusinessMailAddress.Address ?? "") == "")
+                    tmpItem.BusinessMailAddress.Address = (tmpItem.IMAddress ?? "").Contains('@') ? tmpItem.IMAddress : null;
+
                 tmpItem.BusinessMobileNumber = item.Business2TelephoneNumber;
                 tmpItem.BusinessPhoneNumber = item.BusinessTelephoneNumber;
                 tmpItem.BusinessFaxNumber = item.BusinessFaxNumber;
@@ -217,6 +276,7 @@ namespace CopyO2O.Outlook
                     tmpItem.BusinessLocation.Country = item.BusinessAddressCountry;
                 }
 
+                //==========================
                 //handle photo
                 if (item.HasPicture)
                 {
@@ -250,7 +310,11 @@ namespace CopyO2O.Outlook
                 appInstance = (OutlookInterop.Application)System.Runtime.InteropServices.Marshal.GetActiveObject("Outlook.Application");
                 outlookAlreadyRunning = true;
             }
-            catch { appInstance = new OutlookInterop.Application(); }
+            catch (Exception e)
+            {
+                Debug.WriteLine("ERROR OutlookApplication " + e.Message);
+                appInstance = new OutlookInterop.Application();
+            }
         }
 
         ~Application()

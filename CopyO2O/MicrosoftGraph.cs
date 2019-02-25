@@ -40,6 +40,7 @@ namespace CopyO2O.Office365
             }
             catch (Exception e)
             {
+                Debug.WriteLine("ERROR MSGraph " + e.Message);
                 IsValid = false;
                 throw e;
             }
@@ -48,7 +49,11 @@ namespace CopyO2O.Office365
         private async Task<AuthenticationResult> AuthResultAsync()
         {
             try { return await appClient.AcquireTokenSilentAsync(Scope, appClient.GetAccountsAsync().Result.First()); }
-            catch { return await appClient.AcquireTokenAsync(Scope); }
+            catch (Exception e)
+            {
+                Debug.WriteLine("ERROR AuthResultAsync " + e.Message);
+                return await appClient.AcquireTokenAsync(Scope);
+            }
         }
 
         protected GraphServiceClient GetGraphClient()
@@ -134,7 +139,11 @@ namespace CopyO2O.Office365
 
                     return (await GetGraphClient().Me.Calendars.Request().AddAsync(newCal)).Id;
                 }
-                catch { return ""; }
+                catch (Exception e)
+                {
+                    Debug.WriteLine("ERROR CreateAsync " + e.Message);
+                    return "";
+                }
             }
             else return "";
         }
@@ -166,6 +175,8 @@ namespace CopyO2O.Office365
                 }
                 catch (Microsoft.Graph.ServiceException e)
                 {
+                    Debug.WriteLine("ERROR DeleteAsync " + e.Message);
+
                     if (e.StatusCode == System.Net.HttpStatusCode.Conflict)
                     {
                         await GetGraphClient().Me.Calendars[calendarID].Request().DeleteAsync();
@@ -202,7 +213,11 @@ namespace CopyO2O.Office365
                     _calendarIds.Remove(OldCalendarName.ToUpper());
                     return true;
                 }
-                catch { return false; }
+                catch (Exception e)
+                {
+                    Debug.WriteLine("ERROR RenameAsync " + e.Message);
+                    return false;
+                }
             }
             else return false;
         }
@@ -329,6 +344,7 @@ namespace CopyO2O.Office365
                 { return await graphService.Me.Calendars[calendarId].Events.Request().AddAsync(item); }
                 catch (Microsoft.Graph.ServiceException e)
                 {
+                    Debug.WriteLine("ERROR CreateItemAsync " + e.Message);
                     retry = false;
 
                     //if service is busy, too many connection, aso. retry request
@@ -399,6 +415,7 @@ namespace CopyO2O.Office365
                 { await graphService.Me.Events[eventId].Request().UpdateAsync(updatedItem); }
                 catch (Microsoft.Graph.ServiceException e)
                 {
+                    Debug.WriteLine("ERROR UpdateItemAsync " + e.Message);
                     retry = false;
 
                     //if service is busy, too many connection, aso. retry request
@@ -426,6 +443,7 @@ namespace CopyO2O.Office365
                 { await graphService.Me.Events[eventId].Request().DeleteAsync(); }
                 catch (Microsoft.Graph.ServiceException e)
                 {
+                    Debug.WriteLine(e);
                     retry = false;
 
                     //if service is busy, too many connection, aso. retry request
@@ -457,7 +475,10 @@ namespace CopyO2O.Office365
                 return true;
             }
             catch (Microsoft.Graph.ServiceException e)
-            { return false; }
+            {
+                Debug.WriteLine("ERROR DeleteItems " + e.Message);
+                return false;
+            }
         }
     }
 
@@ -564,7 +585,11 @@ namespace CopyO2O.Office365
 
                     return (await GetGraphClient().Me.ContactFolders.Request().AddAsync(newCal)).Id;
                 }
-                catch { return ""; }
+                catch (Exception e)
+                {
+                    Debug.WriteLine("ERROR AddAsync " + e.Message);
+                    return "";
+                }
             }
             else return "";
         }
@@ -700,6 +725,7 @@ namespace CopyO2O.Office365
                     }
                     catch (Microsoft.Graph.ServiceException e)
                     {
+                        Debug.WriteLine("ERROR ContactFolder THIS " + e.Message);
                         retry = false;
 
                         //if service is busy, too many connection, aso. retry request
@@ -846,6 +872,10 @@ namespace CopyO2O.Office365
                 newItem.CompanyName = item.Company;
                 newItem.Birthday = item.Birthday;
                 newItem.PersonalNotes = item.Notes;
+
+                //if at least one messenger address is known
+                if (item.IMAddress != null)
+                    newItem.ImAddresses = new List<string> { item.IMAddress };
 
                 //if at least one category is set
                 if (item.Categories != null)
