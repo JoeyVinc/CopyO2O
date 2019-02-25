@@ -466,10 +466,60 @@ namespace CopyO2O.Office365
         private Dictionary<string, string> _contactFolderIds = new Dictionary<string, string>();
 
         //constructor
-        public ContactFolders(string appId, List<string> AppPermissions) : base(appId, AppPermissions) { }
-
-        private string GetContactFolderId(string ContactFolderName, bool RenewRequest = false)
+        public ContactFolders(string appId, List<string> AppPermissions) : base(appId, AppPermissions)
         {
+            //read all sub-folders initially
+            GetFolders();
+        }
+
+        /// <summary>
+        /// Get all sub folders which are known - Remark: Not the default folder! *hrgh*
+        /// </summary>
+        /// <param name="RenewRequest"></param>
+        /// 
+        private void GetFolders()
+        {
+            List<QueryOption> options = new List<QueryOption>();
+            options.Add(new QueryOption("$top", MaxItemsPerRequest.ToString()));
+
+            //request all contactFolders
+            IUserContactFoldersCollectionPage contactFolders = GetGraphClient().Me.ContactFolders.Request(options).GetAsync().Result;
+
+            //if at least one folder found
+            if (contactFolders != null)
+            {
+                this._contactFolderIds.Clear();
+
+                bool requestNextPage;
+                do
+                {
+                    requestNextPage = (contactFolders.NextPageRequest != null);
+
+                    foreach (Microsoft.Graph.ContactFolder folder in contactFolders)
+                    {
+                        this._contactFolderIds.Add(folder.DisplayName.ToUpper(), folder.Id);
+                    }
+
+                    if (requestNextPage)
+                        contactFolders = contactFolders.NextPageRequest.GetAsync().Result;
+
+                } while (requestNextPage);
+            }
+        }
+
+        /// <summary>
+        /// Get the corresponding ID of a contact/subfolder (not the default one!)
+        /// </summary>
+        /// <param name="ContactFolderName">Display name of a contact</param>
+        /// <param name="RenewRequest">If true the folders will be new readen from MS Graph; else it will be from cache</param>
+        /// <returns>The unique ID of the contact</returns>
+        /// 
+        private string GetId(string ContactFolderName, bool RenewRequest = false)
+        {
+            //if nothing set use default folder
+            if ((ContactFolderName ?? "") == "")
+                return null;
+
             if (!RenewRequest)
             {
                 //if the contactFoldername is already known return the corresponding ID
@@ -477,45 +527,33 @@ namespace CopyO2O.Office365
                     return _contactFolderIds[ContactFolderName.ToUpper()];
             }
 
-            List<QueryOption> options = new List<QueryOption>();
-            options.Add(new QueryOption("$top", MaxItemsPerRequest.ToString()));
+            GetFolders();
+            //if the contactFoldername is already known return the corresponding ID
+            if (_contactFolderIds.ContainsKey(ContactFolderName.ToUpper()))
+                return _contactFolderIds[ContactFolderName.ToUpper()];
 
-            //request all contactFolders
-            IUserContactFoldersCollectionPage contactFolders = GetGraphClient().Me.ContactFolders.Request(options).GetAsync().Result;
-
-            bool requestNextPage;
-            do
-            {
-                requestNextPage = (contactFolders.NextPageRequest != null);
-
-                //search for id of specified calender
-                for (int i = 0; i < contactFolders.Count; i++)
-                {
-                    //if the contactFolder was found return the ID
-                    if (contactFolders[i].DisplayName.ToUpper() == ContactFolderName.ToUpper())
-                    {
-                        _contactFolderIds.Add(ContactFolderName.ToUpper(), contactFolders[i].Id);
-                        return contactFolders[i].Id;
-                    }
-                }
-
-                if (requestNextPage)
-                    contactFolders = contactFolders.NextPageRequest.GetAsync().Result;
-
-            } while (requestNextPage);
-
-            throw new Exception("Contact-folder named '" + ContactFolderName + "' could not be found!");
+            throw new Exception("Office365: Contact-folder named '" + ContactFolderName + "' could not be found!");
         }
 
         /// <summary>
-        /// create contactFolder
+        /// Return a ContactFolder object
+        /// </summary>
+        /// <param name="ContactFolderName">Display name of a contact folder</param>
+        /// <returns></returns>
+        public ContactFolder GetContactFolder(string ContactFolderName)
+        {
+            return new ContactFolder(GetGraphClient(), ContactFolderName, this.GetId(ContactFolderName));
+        }
+
+        /// <summary>
+        /// Create a Contact Folder (subfolder of the default root)
         /// </summary>
         /// <param name="ContactFolderName">Name of contactFolder to delete</param>
         /// <returns>the ID of the created contactFolder</returns>
-        public async Task<string> CreateAsync(string ContactFolderName)
+        public async Task<string> AddAsync(string ContactFolderName)
         {
             //if contactFolder does not exist
-            if (GetContactFolderId(ContactFolderName, true) == "")
+            if (GetId(ContactFolderName, true) == "")
             {
                 try
                 {
@@ -531,11 +569,6 @@ namespace CopyO2O.Office365
             else return "";
         }
 
-        public ContactFolder GetContactFolder(string ContactFolderName)
-        {
-            return new ContactFolder(GetGraphClient(), ContactFolderName, this.GetContactFolderId(ContactFolderName));
-        }
-
         /// <summary>
         /// delete contactFolder
         /// </summary>
@@ -543,7 +576,7 @@ namespace CopyO2O.Office365
         /// <returns>TRUE if successful otherwise FALSE</returns>
         public async Task<bool> DeleteAsync(string ContactFolderName)
         {
-            string contactFolderID = GetContactFolderId(ContactFolderName);
+            string contactFolderID = GetId(ContactFolderName);
 
             //if contactFolder exists
             if (contactFolderID != "")
@@ -558,6 +591,8 @@ namespace CopyO2O.Office365
                 }
                 catch (Microsoft.Graph.ServiceException e)
                 {
+                    Debug.WriteLine("ERROR DeleteAsync " + e.Message);
+
                     if (e.StatusCode == System.Net.HttpStatusCode.Conflict)
                     {
                         await GetGraphClient().Me.ContactFolders[contactFolderID].Request().DeleteAsync();
@@ -580,7 +615,7 @@ namespace CopyO2O.Office365
         /// <returns></returns>
         public async Task<bool> RenameAsync(string OldContactFolderName, string NewContactFolderName)
         {
-            string contactFolderID = GetContactFolderId(OldContactFolderName);
+            string contactFolderID = GetId(OldContactFolderName);
 
             //if contactFolder exists
             if (contactFolderID != "")
@@ -594,7 +629,11 @@ namespace CopyO2O.Office365
                     _contactFolderIds.Remove(OldContactFolderName.ToUpper());
                     return true;
                 }
-                catch { return false; }
+                catch (Exception e)
+                {
+                    Debug.WriteLine("ERROR RenameAsync " + e.Message);
+                    return false;
+                }
             }
             else return false;
         }
@@ -604,18 +643,45 @@ namespace CopyO2O.Office365
     {
         private string contactFolderName = "";
         private string contactFolderId = "";
-        private GraphServiceClient graphService;
+        private bool useDefault = false;
 
+        private GraphServiceClient graphService;
         private int MaxItemsPerRequest = 10;
         private int DefaultRetryDelay = 500;
 
+        public string ContactFolderName { get => UseDefault ? null : contactFolderName; }
+        public string ContactFolderId { get => UseDefault ? null : contactFolderId; }
+        public bool UseDefault { get { return useDefault; } set { useDefault = value; contactFolderName = null; contactFolderId = null; } }
+
+        /// <summary>
+        /// constructor of ContactFolder. ContactFolder is a SUBfolder for contacts. There is also a default folder (*hrgh*) which does not have a real name.
+        /// </summary>
+        /// <param name="GraphClient"></param>
+        /// <param name="Name">Display name of a folder. If empty or null the default folder will be used.</param>
+        /// <param name="Id">ID of the folder</param>
+        /// 
         public ContactFolder(GraphServiceClient GraphClient, string Name, string Id)
         {
             graphService = GraphClient;
-            contactFolderName = Name;
-            contactFolderId = Id;
+
+            //if not default
+            if ((Name ?? "") != "")
+            {
+                contactFolderName = Name;
+                contactFolderId = Id;
+            }
+            else //use default folder - which does not have a name *hrgh*
+            {
+                UseDefault = true;
+            }
         }
 
+        /// <summary>
+        /// return a specific contact
+        /// </summary>
+        /// <param name="ItemId"></param>
+        /// <returns>Return the contact object</returns>
+        /// 
         public Microsoft.Graph.Contact this[string ItemId]
         {
             get
@@ -625,7 +691,13 @@ namespace CopyO2O.Office365
                 do
                 {
                     try
-                    { return graphService.Me.ContactFolders[contactFolderId].Contacts[ItemId].Request().GetAsync().Result; }
+                    {
+                        //if default folder
+                        if (this.useDefault)
+                            return graphService.Me.Contacts[ItemId].Request().GetAsync().Result;
+                        else
+                            return graphService.Me.ContactFolders[contactFolderId].Contacts[ItemId].Request().GetAsync().Result;
+                    }
                     catch (Microsoft.Graph.ServiceException e)
                     {
                         retry = false;
@@ -648,41 +720,90 @@ namespace CopyO2O.Office365
             }
         }
 
-        public async Task<List<Microsoft.Graph.Contact>> GetItemsAsync()
+        /// <summary>
+        /// Get all contacts in the current folder (or default root).
+        /// </summary>
+        /// <returns>Returns a list of contacts info</returns>
+        /// 
+        public async Task<List<Microsoft.Graph.Contact>> GetContactsAsync()
         {
             List<Microsoft.Graph.Contact> result = new List<Microsoft.Graph.Contact>();
 
             List<QueryOption> options = new List<QueryOption>();
             options.Add(new QueryOption("$top", MaxItemsPerRequest.ToString()));
 
-            IContactFolderContactsCollectionPage items = await graphService.Me.ContactFolders[contactFolderId].Contacts.Request(options).GetAsync();
-            bool requestNextPage = false;
-            do
+            //if default folder
+            if (useDefault)
             {
-                requestNextPage = (items.NextPageRequest != null);
-                foreach (Microsoft.Graph.Contact item in items)
-                {
-                    result.Add(item);
-                }
+                IUserContactsCollectionPage items = await graphService.Me.Contacts.Request(options).GetAsync();
 
-                if (requestNextPage)
-                    items = await items.NextPageRequest.GetAsync();
+                //if at least one item found
+                if (items != null)
+                {
+                    bool requestNextPage = false;
+                    do
+                    {
+                        requestNextPage = (items.NextPageRequest != null);
+                        foreach (Microsoft.Graph.Contact item in items)
+                        {
+                            result.Add(item);
+                        }
+
+                        if (requestNextPage)
+                            items = await items.NextPageRequest.GetAsync();
+                    }
+                    while (requestNextPage);
+                }
             }
-            while (requestNextPage);
+            else
+            {
+                IContactFolderContactsCollectionPage items = await graphService.Me.ContactFolders[contactFolderId].Contacts.Request(options).GetAsync();
+
+                //if at least one item found
+                if (items != null)
+                {
+                    bool requestNextPage = false;
+                    do
+                    {
+                        requestNextPage = (items.NextPageRequest != null);
+                        foreach (Microsoft.Graph.Contact item in items)
+                        {
+                            result.Add(item);
+                        }
+
+                        if (requestNextPage)
+                            items = await items.NextPageRequest.GetAsync();
+                    }
+                    while (requestNextPage);
+                }
+            }
 
             return result;
         }
 
-        public async Task<Microsoft.Graph.Contact> CreateItemAsync(Microsoft.Graph.Contact item)
+        /// <summary>
+        /// Create a single contact by the specified info.
+        /// </summary>
+        /// <param name="item">New contact info.</param>
+        /// <returns>Return the new created contact.</returns>
+        /// 
+        public async Task<Microsoft.Graph.Contact> AddAsync(Microsoft.Graph.Contact item)
         {
             bool retry = false;
 
             do
             {
                 try
-                { return await graphService.Me.ContactFolders[contactFolderId].Contacts.Request().AddAsync(item); }
+                {
+                    //if the default root should be used
+                    if (useDefault)
+                        return await graphService.Me.Contacts.Request().AddAsync(item);
+                    else
+                        return await graphService.Me.ContactFolders[contactFolderId].Contacts.Request().AddAsync(item);
+                }
                 catch (Microsoft.Graph.ServiceException e)
                 {
+                    Debug.WriteLine("ERROR CreateContactAsync " + e.Message);
                     retry = false;
 
                     //if service is busy, too many connection, aso. retry request
@@ -702,7 +823,12 @@ namespace CopyO2O.Office365
             return null;
         }
 
-        public void CreateItems(ContactCollectionType items)
+        /// <summary>
+        /// Create new contacts by a list of standardizes contacts (see "Contacts"-namespace)
+        /// </summary>
+        /// <param name="items">Standardized contact information</param>
+        /// 
+        public void AddContacts(ContactCollectionType items)
         {
             List<Task> tasks = new List<Task>();
             List<Task> pictureUploads = new List<Task>();
@@ -764,7 +890,7 @@ namespace CopyO2O.Office365
                     newItem.BusinessAddress.CountryOrRegion = item.BusinessLocation.Country;
                 }
 
-                tasks.Add(this.CreateItemAsync(newItem).ContinueWith(async (i) =>
+                tasks.Add(this.AddAsync(newItem).ContinueWith(async (i) =>
                     {
                         if (item.HasPhoto)
                         {
@@ -777,7 +903,13 @@ namespace CopyO2O.Office365
             Task.WaitAll(tasks.ToArray());
         }
 
-        public async Task UpdateItemAsync(string itemId, Microsoft.Graph.Contact updatedItem)
+        /// <summary>
+        /// Update the information of a contact.
+        /// </summary>
+        /// <param name="itemId">ID of the contact.</param>
+        /// <param name="updatedItem">Info to update/new info</param>
+        /// 
+        public async Task UpdateAsync(string itemId, Microsoft.Graph.Contact updatedItem)
         {
             bool retry = false;
 
@@ -787,6 +919,7 @@ namespace CopyO2O.Office365
                 { await graphService.Me.Contacts[itemId].Request().UpdateAsync(updatedItem); }
                 catch (Microsoft.Graph.ServiceException e)
                 {
+                    Debug.WriteLine("ERROR UpdateContactAsync " + e.Message);
                     retry = false;
 
                     //if service is busy, too many connection, aso. retry request
@@ -804,7 +937,12 @@ namespace CopyO2O.Office365
             } while (retry == true);
         }
 
-        public async Task DeleteItemAsync(string itemId)
+        /// <summary>
+        /// Delete the specified contact.
+        /// </summary>
+        /// <param name="itemId">ID of the contact to delete</param>
+        /// 
+        public async Task DeleteAsync(string itemId)
         {
             bool retry = false;
 
@@ -814,6 +952,7 @@ namespace CopyO2O.Office365
                 { await graphService.Me.Contacts[itemId].Request().DeleteAsync(); }
                 catch (Microsoft.Graph.ServiceException e)
                 {
+                    Debug.WriteLine("ERROR DeleteContactAsync " + e.Message);
                     retry = false;
 
                     //if service is busy, too many connection, aso. retry request
@@ -831,21 +970,27 @@ namespace CopyO2O.Office365
             } while (retry == true);
         }
 
-        public bool DeleteItems()
+        /// <summary>
+        /// Delete all contacts in the current folder (or default root)
+        /// </summary>
+        /// <returns>TRUE if successfull otherwise FALSE</returns>
+        /// 
+        public bool DeleteContacts()
         {
             List<Task> deleteThreads = new List<Task>();
 
             try
             {
-                List<Microsoft.Graph.Contact> items = this.GetItemsAsync().Result;
+                List<Microsoft.Graph.Contact> items = this.GetContactsAsync().Result;
                 foreach (Microsoft.Graph.Contact item in items)
-                { deleteThreads.Add(this.DeleteItemAsync(item.Id)); }
+                { deleteThreads.Add(this.DeleteAsync(item.Id)); }
 
                 Task.WaitAll(deleteThreads.ToArray());
                 return true;
             }
             catch (Microsoft.Graph.ServiceException e)
             {
+                Debug.WriteLine("ERROR DeleteContacts " + e.Message);
                 return false;
             }
         }

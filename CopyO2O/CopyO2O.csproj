@@ -35,7 +35,7 @@
   <ItemGroup>
     <Reference Include="Commonfunctions, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\Commonfunctions\Commonfunctions\bin\Debug\Commonfunctions.dll</HintPath>
+      <HintPath>runtime\Commonfunctions.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Graph, Version=1.12.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
       <HintPath>..\packages\Microsoft.Graph.1.12.0\lib\net45\Microsoft.Graph.dll</HintPath>
@@ -93,6 +93,9 @@
       <Isolated>False</Isolated>
       <EmbedInteropTypes>True</EmbedInteropTypes>
     </COMReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="runtime\" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

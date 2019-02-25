@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Commonfunctions.Debugging;
+using Commonfunctions.Logging;
 using System.Diagnostics;
 
 namespace CopyO2O
@@ -48,11 +48,15 @@ namespace CopyO2O
                             {
                                 calendar_source_Name = parValue.Split(';')[0].Trim('"');
                                 calendar_destination_Name = parValue.Split(';')[1].Trim('"');
+                                //if no dest folder was set use the default one
+                                if (calendar_destination_Name == "") calendar_destination_Name = null;
                             }
                             else
                             {
                                 calendar_source_Name = parValue.Split(';')[0].Trim('\'');
                                 calendar_destination_Name = parValue.Split(';')[1].Trim('\'');
+                                //if no dest folder was set use the default one
+                                if (calendar_destination_Name == "") calendar_destination_Name = null;
                             }
                             break;
                         case "/CON":
@@ -60,11 +64,15 @@ namespace CopyO2O
                             {
                                 contacts_source_Name = parValue.Split(';')[0].Trim('"');
                                 contacts_destination_Name = parValue.Split(';')[1].Trim('"');
+                                //if no dest folder was set use the default one
+                                if (contacts_destination_Name == "") contacts_destination_Name = null;
                             }
                             else
                             {
                                 contacts_source_Name = parValue.Split(';')[0].Trim('\'');
                                 contacts_destination_Name = parValue.Split(';')[1].Trim('\'');
+                                //if no dest folder was set use the default one
+                                if (contacts_destination_Name == "") contacts_destination_Name = null;
                             }
                             break;
                         case "/FROM":
@@ -123,12 +131,12 @@ namespace CopyO2O
             string overview = "Start sync of \n";
             if (SyncCAL())
             {
-                overview += "Calendar: '" + calendar_source_Name + "' >> '" + calendar_destination_Name + "'"
+                overview += "Calendar: '" + calendar_source_Name + "' >> '" + (calendar_destination_Name??"DEFAULT") + "'"
                 + " from " + from.ToShortDateString() + " to " + to.ToShortDateString() + "\n";
             }
             if (SyncCON())
             {
-                overview += "Contacts: '" + contacts_source_Name + "' >> '" + contacts_destination_Name + "'";
+                overview += "Contacts: '" + contacts_source_Name + "' >> '" + (contacts_destination_Name??"DEFAULT") + "'";
             }
             Console.WriteLine(overview);
 
@@ -150,7 +158,7 @@ namespace CopyO2O
                 {
                     Log("Open Office365...");
                     outlookCloud_Cals = new Office365.Calendars(appId, AppPermissions);
-                    Office365.Calendar o365_dest_calendar = outlookCloud_Cals.GetCalendar(calendar_destination_Name);
+                    Office365.Calendar o365_dest_calendar = outlookCloud_Cals.GetCalendar(calendar_destination_Name??"Calendar"); //Calendar is the default calendar folder
                     LogLn(" Done.");
 
                     Log("Get all source events...");
@@ -187,17 +195,17 @@ namespace CopyO2O
                     LogLn(" Done. " + srcContacts.Count.ToString() + " found.");
 
                     Log("Clear online contacts...");
-                    o365_dest_contactfolder.DeleteItems();
+                    o365_dest_contactfolder.DeleteContacts();
                     LogLn(" Done.");
 
                     Log("Copy contacts...");
-                    o365_dest_contactfolder.CreateItems(srcContacts);
+                    o365_dest_contactfolder.AddContacts(srcContacts);
                     LogLn(" Done.");
 
                     //exec only if verbose logging enabled
                     if (logOutput)
                     {
-                        LogLn("Get all destination contacts... Done. " + o365_dest_contactfolder.GetItemsAsync().Result.Count.ToString() + " found.");
+                        LogLn("Get all destination contacts... Done. " + o365_dest_contactfolder.GetContactsAsync().Result.Count.ToString() + " found.");
                     }
                 }
             }
