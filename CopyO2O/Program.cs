@@ -20,6 +20,7 @@ namespace CopyO2O
         {
             const string appId = "cb2c2f84-63f0-49d8-9335-79fcc6050654";
             List<string> AppPermissions = new List<string> { "User.Read", "Calendars.ReadWrite", "Contacts.ReadWrite" };
+            string tmpIdsToDelete_FilePath = System.Reflection.Assembly.GetExecutingAssembly().Location + "itd.cache";
 
             DateTime from = DateTime.Now.AddMonths(-1);
             DateTime to = DateTime.Now.AddMonths(1);
@@ -166,18 +167,31 @@ namespace CopyO2O
                     Events srcEvents = src_calendar.GetItems(from, to);
                     LogLn(" Done. " + srcEvents.Count.ToString() + " found.");
 
-                    Log("Clear online events...");
-                    o365_dest_calendar.DeleteItems(from.AddDays(-clearpast), to);
+                    Log("Mark calendar items to delete...");
+                    List<KeyValuePair<string, string>> calendarItemsToDelete = new List<KeyValuePair<string, string>>();
+                    o365_dest_calendar.GetItemsAsync(from.AddDays(-clearpast), to).Result.ForEach((x) => { calendarItemsToDelete.Add(new KeyValuePair<string, string>(Helpers.Marker_O365, x.Id)); });
+                    Helpers.SetIDsToRemove(calendarItemsToDelete, Helpers.ID_type.CalItem, tmpIdsToDelete_FilePath);
                     LogLn(" Done.");
 
                     Log("Copy events...");
-                    o365_dest_calendar.CreateItems(srcEvents);
+                    List<Office365.Replacement> replacements = new List<Office365.Replacement>(); //new List<Office365.Replacement> { new Office365.Replacement { key = "Location", regex = ".*(Vertex).*", newvalue = "Fasanenweg 9, 70771 Leinfelden-Echterdingen, Deutschland" } };
+                    o365_dest_calendar.CreateItems(srcEvents, replacements);
+                    LogLn(" Done.");
+
+                    Log("Delete doublettes...");
+                    List<string> calendarItemsFromFileToDelete = Helpers.GetIDsToRemove(Helpers.ID_type.CalItem, tmpIdsToDelete_FilePath).Where(x => (x.Key == Helpers.Marker_O365)).Select(x => x.Value).ToList<string>();
+
+                    //if doublettes successfully deleted remove cache file
+                    if (o365_dest_calendar.DeleteItems(calendarItemsFromFileToDelete) == true)
+                        System.IO.File.Delete(tmpIdsToDelete_FilePath);
                     LogLn(" Done.");
 
                     //exec only if verbose logging enabled
                     if (logOutput)
                     {
-                        LogLn("Get all destination events... Done. " + o365_dest_calendar.GetItemsAsync(from.AddDays(-clearpast), to).Result.Count.ToString() + " found.");
+                        Log("Get count of created events...");
+                        int destCount = o365_dest_calendar.GetItemsAsync(from.AddDays(-clearpast), to).Result.Count;
+                        LogLn(" Done. " + destCount.ToString() + " found.");
                     }
                 }
 
@@ -194,18 +208,30 @@ namespace CopyO2O
                     ContactCollectionType srcContacts = src_contactfolder.GetItems();
                     LogLn(" Done. " + srcContacts.Count.ToString() + " found.");
 
-                    Log("Clear online contacts...");
-                    o365_dest_contactfolder.DeleteContacts();
+                    Log("Mark contacts to delete...");
+                    List<KeyValuePair<string, string>> idsToDelete = new List<KeyValuePair<string, string>>();
+                    o365_dest_contactfolder.GetContactsAsync().Result.ForEach((x) => { idsToDelete.Add(new KeyValuePair<string, string>(Helpers.Marker_O365, x.Id)); });
+                    Helpers.SetIDsToRemove(idsToDelete, Helpers.ID_type.Contact, tmpIdsToDelete_FilePath);
                     LogLn(" Done.");
 
                     Log("Copy contacts...");
                     o365_dest_contactfolder.AddContacts(srcContacts);
                     LogLn(" Done.");
 
+                    Log("Delete doublettes...");
+                    List<string> idsFromFileToDelete = Helpers.GetIDsToRemove(Helpers.ID_type.Contact, tmpIdsToDelete_FilePath).Where(x => (x.Key == Helpers.Marker_O365)).Select(x => x.Value).ToList<string>();
+
+                    //if doublettes successfully deleted remove cache file
+                    if (o365_dest_contactfolder.Delete(idsFromFileToDelete) == true)
+                        System.IO.File.Delete(tmpIdsToDelete_FilePath);
+                    LogLn(" Done.");
+
                     //exec only if verbose logging enabled
                     if (logOutput)
                     {
-                        LogLn("Get all destination contacts... Done. " + o365_dest_contactfolder.GetContactsAsync().Result.Count.ToString() + " found.");
+                        Log("Get count of created contacts...");
+                        int destCount = o365_dest_contactfolder.GetContactsAsync().Result.Count;
+                        LogLn(" Done. " + destCount.ToString() + " found.");
                     }
                 }
             }
@@ -215,15 +241,13 @@ namespace CopyO2O
                     Console.WriteLine(" Error occured: " + e.InnerException.Message);
                 else
                     Console.WriteLine(" Error occured: " + e.Message);
-                throw;
             }
             finally
             {
                 Log("Close Outlook...");
                 if (outlookApp != null)
                 {
-                    try { outlookApp.Quit(); }
-                    catch (Exception e) { throw e; };
+                    outlookApp.Quit();
                 }
                 LogLn(" Done.");
 

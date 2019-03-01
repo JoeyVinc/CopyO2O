@@ -64,6 +64,7 @@
   <ItemGroup>
     <Compile Include="Contacts.cs" />
     <Compile Include="Events.cs" />
+    <Compile Include="Helpers.cs" />
     <Compile Include="MicrosoftGraph.cs" />
     <Compile Include="Outlook.cs" />
     <Compile Include="Program.cs" />

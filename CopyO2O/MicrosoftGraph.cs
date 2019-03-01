@@ -8,10 +8,18 @@ using Microsoft.Graph;
 using System.Net.Http.Headers;
 using System.Diagnostics;
 using Commonfunctions.Convert;
+using System.Text.RegularExpressions;
 
 
 namespace CopyO2O.Office365
 {
+    public struct Replacement
+    {
+        public string key;
+        public string regex;
+        public string newvalue;
+    }
+
     public class MSGraph
     {
         private PublicClientApplication appClient;
@@ -366,6 +374,9 @@ namespace CopyO2O.Office365
 
         public void CreateItems(Events items)
         {
+            //if no items should be created
+            if (items.Count == 0) return;
+
             List<Task> tasks = new List<Task>();
 
             foreach (Event item in items)
@@ -403,6 +414,42 @@ namespace CopyO2O.Office365
             }
 
             Task.WaitAll(tasks.ToArray());
+        }
+
+        /// <summary>
+        /// Creates new items - transformed by Replacement settings (RegEx)
+        /// </summary>
+        /// <param name="items">New Items to create</param>
+        /// <param name="ReplacementSettings">Replacement settings which should be used to every item</param>
+        /// 
+        public void CreateItems(Events items, List<Replacement> ReplacementSettings)
+        {
+            //if no items should be created
+            if (items.Count == 0) return;
+
+            Events newItems = items;
+
+            //for each replacement setting
+            foreach (Replacement replItem in ReplacementSettings)
+            {
+                System.Reflection.FieldInfo keyMember = newItems[0].GetType().GetField(replItem.key);
+
+                //loop through all events to create
+                foreach (Event item in newItems)
+                {
+                    Debug.WriteLine(keyMember.GetValue(item));
+
+                    string oldValue = (string)keyMember.GetValue(item) ?? "";
+                    string newValue = Regex.Replace(oldValue, replItem.regex, replItem.newvalue);
+                    keyMember.SetValue(item, newValue);
+
+                    Debug.WriteLine(keyMember.GetValue(item));
+
+                }
+            }
+
+            //create transformed items
+            this.CreateItems(newItems);
         }
 
         public async Task UpdateItemAsync(string eventId, Microsoft.Graph.Event updatedItem)
@@ -480,6 +527,33 @@ namespace CopyO2O.Office365
                 return false;
             }
         }
+
+        /// <summary>
+        /// Delete calendar events which are contained in the IDs list
+        /// </summary>
+        /// <param name="IDs">List of IDs to delete</param>
+        /// <returns>TRUE if successfull otherwise false</returns>
+        /// 
+        public bool DeleteItems(List<string> IDs)
+        {
+            List<Task> deleteThreads = new List<Task>();
+
+            try
+            {
+                foreach (string id in IDs)
+                { deleteThreads.Add(this.DeleteItemAsync(id)); }
+
+                Task.WaitAll(deleteThreads.ToArray());
+                return true;
+            }
+            catch (Microsoft.Graph.ServiceException e)
+            {
+                Debug.WriteLine("ERROR DeleteItems(List) " + e.Message);
+                return false;
+            }
+        }
+
+
     }
 
     public class ContactFolders : MSGraph
@@ -972,14 +1046,17 @@ namespace CopyO2O.Office365
         /// </summary>
         /// <param name="itemId">ID of the contact to delete</param>
         /// 
-        public async Task DeleteAsync(string itemId)
+        public async Task<bool> DeleteAsync(string itemId)
         {
             bool retry = false;
 
             do
             {
                 try
-                { await graphService.Me.Contacts[itemId].Request().DeleteAsync(); }
+                {
+                    await graphService.Me.Contacts[itemId].Request().DeleteAsync();
+                    return true;
+                }
                 catch (Microsoft.Graph.ServiceException e)
                 {
                     Debug.WriteLine("ERROR DeleteContactAsync " + e.Message);
@@ -998,6 +1075,33 @@ namespace CopyO2O.Office365
                     }
                 }
             } while (retry == true);
+
+            return false;
+        }
+
+        /// <summary>
+        /// Delete contacts which are contained in the IDs list
+        /// </summary>
+        /// <param name="IDs">List of IDs to delete</param>
+        /// <returns>TRUE if successfull otherwise false</returns>
+        /// 
+        public bool Delete(List<string> IDs)
+        {
+            List<Task> deleteThreads = new List<Task>();
+
+            try
+            {
+                foreach (string id in IDs)
+                { deleteThreads.Add(this.DeleteAsync(id)); }
+
+                Task.WaitAll(deleteThreads.ToArray());
+                return true;
+            }
+            catch (Microsoft.Graph.ServiceException e)
+            {
+                Debug.WriteLine("ERROR DeleteContacts " + e.Message);
+                return false;
+            }
         }
 
         /// <summary>
@@ -1005,7 +1109,7 @@ namespace CopyO2O.Office365
         /// </summary>
         /// <returns>TRUE if successfull otherwise FALSE</returns>
         /// 
-        public bool DeleteContacts()
+        public bool Clear()
         {
             List<Task> deleteThreads = new List<Task>();
 
@@ -1020,7 +1124,7 @@ namespace CopyO2O.Office365
             }
             catch (Microsoft.Graph.ServiceException e)
             {
-                Debug.WriteLine("ERROR DeleteContacts " + e.Message);
+                Debug.WriteLine("ERROR ClearContacts " + e.Message);
                 return false;
             }
         }
