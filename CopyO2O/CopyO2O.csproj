@@ -35,7 +35,7 @@
   <ItemGroup>
     <Reference Include="Commonfunctions, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>runtime\Commonfunctions.dll</HintPath>
+      <HintPath>..\..\Commonfunctions\Commonfunctions\bin\Release\Commonfunctions.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.Graph, Version=1.12.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
       <HintPath>..\packages\Microsoft.Graph.1.12.0\lib\net45\Microsoft.Graph.dll</HintPath>
