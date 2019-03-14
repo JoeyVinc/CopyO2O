@@ -177,6 +177,7 @@ namespace CopyO2O
             }
             catch (System.IO.FileNotFoundException e)
             {
+                Program.LogLn(e.Message);
                 return;
             }
             finally
@@ -219,6 +220,8 @@ namespace CopyO2O
 
         public static void O365_Contact_Added(string newO365ID, string OutlookID)
         {
+            Program.LogLn("Contact added: " + OutlookID + " -> " + newO365ID);
+
             lock (syncCache)
             {
                 syncCache.Add(new SyncInfo
@@ -235,6 +238,8 @@ namespace CopyO2O
 
         public static void O365_Event_Added(string newO365ID, string OutlookID)
         {
+            Program.LogLn("Event added: " + OutlookID + " -> " + newO365ID);
+
             lock (syncCache)
             {
                 syncCache.Add(new SyncInfo
@@ -251,6 +256,8 @@ namespace CopyO2O
 
         public static void O365_Item_Removed(string O365ID)
         {
+            Program.LogLn("Item removed: " + O365ID);
+
             lock (syncCache)
             {
                 syncCache.RemoveAll(x => (x.O365ID == O365ID));

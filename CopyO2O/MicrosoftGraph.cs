@@ -20,7 +20,7 @@ namespace CopyO2O.Office365
         public string newvalue;
     }
 
-    public class MSGraph
+    public class Graph
     {
         private PublicClientApplication appClient;
         private GraphServiceClient _graphClient = null;
@@ -28,10 +28,10 @@ namespace CopyO2O.Office365
         private List<string> Scope = new List<string> { };
 
         public bool IsValid { get; } = false; //TRUE if the graph could be successfully connected
-        public int MaxItemsPerRequest = 10;
+        public int MaxItemsPerRequest = 50;
         public int DefaultRetryDelay = 500;
 
-        public MSGraph(string appId, List<string> scope)
+        public Graph(string appId, List<string> scope)
         {
             if (scope.Count == 0) throw new Exception("Scope not defined!");
             Scope = scope;
@@ -52,6 +52,10 @@ namespace CopyO2O.Office365
                 IsValid = false;
                 throw e;
             }
+
+            Calendars = new Calendars(this);
+            ContactFolders = new ContactFolders(this);
+
         }
 
         private async Task<AuthenticationResult> AuthResultAsync()
@@ -79,19 +83,62 @@ namespace CopyO2O.Office365
 
             return _graphClient;
         }
+
+        public Calendars Calendars;
+        public ContactFolders ContactFolders;
     }
 
-    public class Calendars
+    public abstract class GraphContainerCollection<ContainerType>
     {
-        private Dictionary<string, string> _calendarIds = new Dictionary<string, string>();
+        public ContainerType this[string Name] { get => this.Get(Name); }
+        public abstract ContainerType Get(string Name);
 
-        public MSGraph connection = null;
+        public abstract Task<ContainerType> CreateAsync(string Name);
+        public abstract Task DeleteAsync(string Name);
+        public abstract Task RenameAsync(string OldName, string NewName);
+
+        public Graph connection = null;
 
         //constructor
-        public Calendars(MSGraph Graph)
+        public GraphContainerCollection(Graph Graph)
         {
             connection = Graph;
         }
+    }
+
+    public abstract class GraphContainer<ItemType>
+    {
+        protected object parent { get; }
+        protected string name;
+        protected string id;
+
+        public string Name { get => name; }
+        public string Id { get => id; }
+
+        public ItemType this[string Id] { get => this.Get(Id); }
+        public abstract ItemType Get(string Id);
+
+        public abstract Task<ItemType> AddAsync(ItemType Item);
+        public abstract Task RemoveAsync(string Id);
+
+        //constructor
+        public GraphContainer(object Parent, string Name, string Id)
+        {
+            parent = Parent;
+            name = Name;
+            id = Id;
+        }
+    }
+
+    public class Calendars : GraphContainerCollection<Calendar>
+    {
+        private Dictionary<string, string> _calendarIds = new Dictionary<string, string>();
+        public override Calendar Get(string CalendarName)
+        {
+            return new Calendar(this, CalendarName, this.GetCalendarId(CalendarName));
+        }
+
+        public Calendars(Graph Graph) : base(Graph) { }
 
         private string GetCalendarId(string CalendarName, bool RenewRequest = false)
         {
@@ -137,6 +184,18 @@ namespace CopyO2O.Office365
         /// </summary>
         /// <param name="CalendarName">Name of calendar to delete</param>
         /// <returns>the ID of the created calendar</returns>
+        /// 
+        public override async Task<Calendar> CreateAsync(string CalendarName)
+        {
+            return new Calendar(this, null, await this.CreateAsync(CalendarName, CalendarColor.Auto));
+        }
+
+        /// <summary>
+        /// create calendar
+        /// </summary>
+        /// <param name="CalendarName">Name of calendar to delete</param>
+        /// <returns>the ID of the created calendar</returns>
+        /// 
         public async Task<string> CreateAsync(string CalendarName, CalendarColor color = CalendarColor.Auto)
         {
             //if calendar does not exist
@@ -161,46 +220,36 @@ namespace CopyO2O.Office365
             else return "";
         }
 
-        public Calendar GetCalendar(string CalendarName)
-        {
-            return new Calendar(this, CalendarName, this.GetCalendarId(CalendarName));
-        }
-
         /// <summary>
         /// delete calendar
         /// </summary>
         /// <param name="CalendarName">Name of calendar to delete</param>
         /// <returns>TRUE if successful otherwise FALSE</returns>
-        public async Task<bool> DeleteAsync(string CalendarName)
+        /// 
+        public override async Task DeleteAsync(string CalendarName)
         {
             string calendarID = GetCalendarId(CalendarName);
 
-            //if calendar exists
-            if (calendarID != "")
+            try
             {
-                try
+                await RenameAsync(CalendarName, "tmp_" + DateTime.Now.ToString("g") + ".tobedeleted");
+                await connection.GetGraphClient().Me.Calendars[calendarID].Request().DeleteAsync();
+
+                _calendarIds.Remove(CalendarName.ToUpper());
+            }
+            catch (Microsoft.Graph.ServiceException e)
+            {
+                Debug.WriteLine("ERROR DeleteAsync " + e.Message);
+
+                if (e.StatusCode == System.Net.HttpStatusCode.Conflict)
                 {
-                    await RenameAsync(CalendarName, "tmp_" + DateTime.Now.ToString("g") + ".tobedeleted");
                     await connection.GetGraphClient().Me.Calendars[calendarID].Request().DeleteAsync();
 
                     _calendarIds.Remove(CalendarName.ToUpper());
-                    return true;
                 }
-                catch (Microsoft.Graph.ServiceException e)
-                {
-                    Debug.WriteLine("ERROR DeleteAsync " + e.Message);
-
-                    if (e.StatusCode == System.Net.HttpStatusCode.Conflict)
-                    {
-                        await connection.GetGraphClient().Me.Calendars[calendarID].Request().DeleteAsync();
-
-                        _calendarIds.Remove(CalendarName.ToUpper());
-                        return true;
-                    }
-                }
+                else
+                    throw e;
             }
-
-            return false;
         }
 
         /// <summary>
@@ -210,49 +259,37 @@ namespace CopyO2O.Office365
         /// <param name="NewCalendarName">new name</param>
         /// <param name="NameIsId">TRUE if OldCalendarName is the ID (not the name)</param>
         /// <returns></returns>
-        public async Task<bool> RenameAsync(string OldCalendarName, string NewCalendarName)
+        /// 
+        public override async Task RenameAsync(string OldCalendarName, string NewCalendarName)
         {
             string calendarID = GetCalendarId(OldCalendarName);
 
-            //if calendar exists
-            if (calendarID != "")
+            try
             {
-                try
-                {
-                    Microsoft.Graph.Calendar tempCalendar = connection.GetGraphClient().Me.Calendars[calendarID].Request().GetAsync().Result;
-                    tempCalendar.Name = NewCalendarName;
-                    await connection.GetGraphClient().Me.Calendars[calendarID].Request().UpdateAsync(tempCalendar);
+                Microsoft.Graph.Calendar tempCalendar = connection.GetGraphClient().Me.Calendars[calendarID].Request().GetAsync().Result;
+                tempCalendar.Name = NewCalendarName;
+                await connection.GetGraphClient().Me.Calendars[calendarID].Request().UpdateAsync(tempCalendar);
 
-                    _calendarIds.Remove(OldCalendarName.ToUpper());
-                    return true;
-                }
-                catch (Exception e)
-                {
-                    Debug.WriteLine("ERROR RenameAsync " + e.Message);
-                    return false;
-                }
+                _calendarIds.Remove(OldCalendarName.ToUpper());
             }
-            else return false;
+            catch (Exception e)
+            {
+                Debug.WriteLine("ERROR RenameAsync " + e.Message);
+                throw e;
+            }
         }
     }
 
-    public class Calendar
+    public class Calendar : GraphContainer<Microsoft.Graph.Event>
     {
-        private string calendarName = "";
-        private string calendarId = "";
         private Dictionary<string, string> deltaSets = new Dictionary<string, string>();
-        private Calendars parent;
 
-        public Calendar(Calendars Parent, string Name, string Id)
-        {
-            parent = Parent;
-            calendarName = Name;
-            calendarId = Id;
-        }
+        public Calendar(Calendars Parent, string Name, string Id) : base(Parent, Name, Id) { }
 
-        public async Task<Microsoft.Graph.Event> GetItemAsync(string EventId)
+        //public Microsoft.Graph.Event this[string Id] { get => this.Get(Id); }
+        public override Microsoft.Graph.Event Get(string EventId)
         {
-            return await parent.connection.GetGraphClient().Me.Calendars[calendarId].Events[EventId].Request().GetAsync();
+            return (parent as Calendars).connection.GetGraphClient().Me.Calendars[this.Id].Events[EventId].Request().GetAsync().Result;
         }
 
         public async Task<List<Microsoft.Graph.Event>> GetItemsAsync(DateTime From, DateTime To)
@@ -261,11 +298,11 @@ namespace CopyO2O.Office365
 
             //request all events expanded (calendarview -> resolved recurring events)
             List<QueryOption> options = new List<QueryOption>();
-            options.Add(new QueryOption("$top", parent.connection.MaxItemsPerRequest.ToString()));
+            options.Add(new QueryOption("$top", (parent as Calendars).connection.MaxItemsPerRequest.ToString()));
             options.Add(new QueryOption("startDateTime", DateNTime.ConvertDateTimeToISO8016(From)));
             options.Add(new QueryOption("endDateTime", DateNTime.ConvertDateTimeToISO8016(To)));
 
-            ICalendarCalendarViewCollectionPage items = await parent.connection.GetGraphClient().Me.Calendars[calendarId].CalendarView.Request(options).GetAsync();
+            ICalendarCalendarViewCollectionPage items = await (parent as Calendars).connection.GetGraphClient().Me.Calendars[this.Id].CalendarView.Request(options).GetAsync();
             bool requestNextPage = false;
             do
             {
@@ -289,7 +326,7 @@ namespace CopyO2O.Office365
 
             //collect parameters for request
             List<QueryOption> options = new List<QueryOption>();
-            options.Add(new QueryOption("odata.maxpagesize", parent.connection.MaxItemsPerRequest.ToString()));
+            options.Add(new QueryOption("odata.maxpagesize", (parent as Calendars).connection.MaxItemsPerRequest.ToString()));
 
             //if a new delta request should be sent
             if (InitDelta)
@@ -300,14 +337,14 @@ namespace CopyO2O.Office365
             //if an existing delta request should be resumed
             else
             {
-                if (deltaSets.ContainsKey(calendarId) == false)
+                if (deltaSets.ContainsKey(this.Id) == false)
                     throw new ApplicationException("Error: Init delta run first!");
 
-                options.Add(new QueryOption("$deltatoken", deltaSets[calendarId]));
+                options.Add(new QueryOption("$deltatoken", deltaSets[this.Id]));
             }
 
             //request all events expanded (calendarview -> resolved recurring events)
-            IEventDeltaCollectionPage events = await parent.connection.GetGraphClient().Me.Calendars[calendarId].CalendarView.Delta().Request(options).GetAsync();
+            IEventDeltaCollectionPage events = await (parent as Calendars).connection.GetGraphClient().Me.Calendars[this.Id].CalendarView.Delta().Request(options).GetAsync();
 
             //loop to request all pages/data
             bool requestNextPage = false;
@@ -325,11 +362,11 @@ namespace CopyO2O.Office365
             while (requestNextPage);
 
             //save the deltaToken for the next (delta-) request
-            if (!deltaSets.ContainsKey(calendarId))
-                deltaSets.Add(calendarId, "");
+            if (!deltaSets.ContainsKey(this.Id))
+                deltaSets.Add(this.Id, "");
 
             string deltaToken = System.Net.WebUtility.UrlDecode(events.AdditionalData["@odata.deltaLink"].ToString()).Split(new string[] { "$deltatoken=" }, StringSplitOptions.RemoveEmptyEntries)[1];
-            deltaSets[calendarId] = deltaToken;
+            deltaSets[this.Id] = deltaToken;
 
             return result;
         }
@@ -337,22 +374,22 @@ namespace CopyO2O.Office365
         public async Task<List<Microsoft.Graph.Event>> GetItemsDeltaAsync(string DeltaToken)
         {
             //save the deltaToken for the next (delta-) request
-            if (!deltaSets.ContainsKey(calendarId))
-                deltaSets.Add(calendarId, "");
+            if (!deltaSets.ContainsKey(this.Id))
+                deltaSets.Add(this.Id, "");
 
-            deltaSets[calendarId] = DeltaToken;
+            deltaSets[this.Id] = DeltaToken;
 
             return await this.GetItemsDeltaAsync(DateTime.Now, DateTime.Now, false);
         }
 
-        public async Task<Microsoft.Graph.Event> AddAsync(Microsoft.Graph.Event item)
+        public override async Task<Microsoft.Graph.Event> AddAsync(Microsoft.Graph.Event item)
         {
             bool retry = false;
 
             do
             {
                 try
-                { return await parent.connection.GetGraphClient().Me.Calendars[calendarId].Events.Request().AddAsync(item); }
+                { return await (parent as Calendars).connection.GetGraphClient().Me.Calendars[this.Id].Events.Request().AddAsync(item); }
                 catch (Microsoft.Graph.ServiceException e)
                 {
                     Debug.WriteLine("ERROR CreateItemAsync " + e.Message);
@@ -361,7 +398,7 @@ namespace CopyO2O.Office365
                     //if service is busy, too many connection, aso. retry request
                     if (e.StatusCode.ToString() == "429")
                     {
-                        int sleeptime = parent.connection.DefaultRetryDelay;
+                        int sleeptime = (parent as Calendars).connection.DefaultRetryDelay;
 
                         if (e.ResponseHeaders.RetryAfter != null)
                             sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
@@ -459,7 +496,7 @@ namespace CopyO2O.Office365
             do
             {
                 try
-                { await parent.connection.GetGraphClient().Me.Events[eventId].Request().UpdateAsync(updatedItem); }
+                { await (parent as Calendars).connection.GetGraphClient().Me.Events[eventId].Request().UpdateAsync(updatedItem); }
                 catch (Microsoft.Graph.ServiceException e)
                 {
                     Debug.WriteLine("ERROR UpdateItemAsync " + e.Message);
@@ -468,7 +505,7 @@ namespace CopyO2O.Office365
                     //if service is busy, too many connection, aso. retry request
                     if (e.StatusCode.ToString() == "429")
                     {
-                        int sleeptime = parent.connection.DefaultRetryDelay;
+                        int sleeptime = (parent as Calendars).connection.DefaultRetryDelay;
 
                         if (e.ResponseHeaders.RetryAfter != null)
                             sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
@@ -480,14 +517,14 @@ namespace CopyO2O.Office365
             } while (retry == true);
         }
 
-        public async Task DeleteAsync(string eventId)
+        public override async Task RemoveAsync(string eventId)
         {
             bool retry = false;
 
             do
             {
                 try
-                { await parent.connection.GetGraphClient().Me.Events[eventId].Request().DeleteAsync(); }
+                { await (parent as Calendars).connection.GetGraphClient().Me.Events[eventId].Request().DeleteAsync(); }
                 catch (Microsoft.Graph.ServiceException e)
                 {
                     Debug.WriteLine(e);
@@ -496,7 +533,7 @@ namespace CopyO2O.Office365
                     //if service is busy, too many connection, aso. retry request
                     if (e.StatusCode.ToString() == "429")
                     {
-                        int sleeptime = parent.connection.DefaultRetryDelay;
+                        int sleeptime = (parent as Calendars).connection.DefaultRetryDelay;
 
                         if (e.ResponseHeaders.RetryAfter != null)
                             sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
@@ -516,7 +553,7 @@ namespace CopyO2O.Office365
             {
                 List<Microsoft.Graph.Event> items = this.GetItemsAsync(from, to).Result;
                 foreach (Microsoft.Graph.Event item in items)
-                { deleteThreads.Add(this.DeleteAsync(item.Id)); }
+                { deleteThreads.Add(this.RemoveAsync(item.Id)); }
 
                 Task.WaitAll(deleteThreads.ToArray());
                 return true;
@@ -541,7 +578,7 @@ namespace CopyO2O.Office365
             try
             {
                 foreach (string id in IDs)
-                { deleteThreads.Add(this.DeleteAsync(id)); }
+                { deleteThreads.Add(this.RemoveAsync(id)); }
 
                 Task.WaitAll(deleteThreads.ToArray());
                 return true;
@@ -552,21 +589,15 @@ namespace CopyO2O.Office365
                 return false;
             }
         }
-
-
     }
 
-    public class ContactFolders
+    public class ContactFolders : GraphContainerCollection<ContactFolder>
     {
         private Dictionary<string, string> _contactFolderIds = new Dictionary<string, string>();
 
-        public MSGraph connection = null;
-
         //constructor
-        public ContactFolders(MSGraph Connection)
+        public ContactFolders(Graph Connection) : base(Connection)
         {
-            connection = Connection;
-
             //read all sub-folders initially
             GetFolders();
         }
@@ -639,7 +670,7 @@ namespace CopyO2O.Office365
         /// </summary>
         /// <param name="ContactFolderName">Display name of a contact folder</param>
         /// <returns></returns>
-        public ContactFolder GetContactFolder(string ContactFolderName)
+        public override ContactFolder Get(string ContactFolderName)
         {
             return new ContactFolder(this, ContactFolderName, this.GetId(ContactFolderName));
         }
@@ -649,7 +680,8 @@ namespace CopyO2O.Office365
         /// </summary>
         /// <param name="ContactFolderName">Name of contactFolder to delete</param>
         /// <returns>the ID of the created contactFolder</returns>
-        public async Task<string> AddAsync(string ContactFolderName)
+        /// 
+        public override async Task<ContactFolder> CreateAsync(string ContactFolderName)
         {
             //if contactFolder does not exist
             if (GetId(ContactFolderName, true) == "")
@@ -661,15 +693,15 @@ namespace CopyO2O.Office365
                         DisplayName = ContactFolderName,
                     };
 
-                    return (await connection.GetGraphClient().Me.ContactFolders.Request().AddAsync(newCal)).Id;
+                    return this.Get((await connection.GetGraphClient().Me.ContactFolders.Request().AddAsync(newCal)).DisplayName);
                 }
                 catch (Exception e)
                 {
                     Debug.WriteLine("ERROR AddAsync " + e.Message);
-                    return "";
+                    return null;
                 }
             }
-            else return "";
+            else return null;
         }
 
         /// <summary>
@@ -677,7 +709,7 @@ namespace CopyO2O.Office365
         /// </summary>
         /// <param name="ContactFolderName">Name of contactFolder to delete</param>
         /// <returns>TRUE if successful otherwise FALSE</returns>
-        public async Task<bool> DeleteAsync(string ContactFolderName)
+        public override async Task DeleteAsync(string ContactFolderName)
         {
             string contactFolderID = GetId(ContactFolderName);
 
@@ -690,7 +722,6 @@ namespace CopyO2O.Office365
                     await connection.GetGraphClient().Me.ContactFolders[contactFolderID].Request().DeleteAsync();
 
                     _contactFolderIds.Remove(ContactFolderName.ToUpper());
-                    return true;
                 }
                 catch (Microsoft.Graph.ServiceException e)
                 {
@@ -701,12 +732,10 @@ namespace CopyO2O.Office365
                         await connection.GetGraphClient().Me.ContactFolders[contactFolderID].Request().DeleteAsync();
 
                         _contactFolderIds.Remove(ContactFolderName.ToUpper());
-                        return true;
                     }
+                    else throw e;
                 }
             }
-
-            return false;
         }
 
         /// <summary>
@@ -716,43 +745,33 @@ namespace CopyO2O.Office365
         /// <param name="NewContactFolderName">new name</param>
         /// <param name="NameIsId">TRUE if OldContactFolderName is the ID (not the name)</param>
         /// <returns></returns>
-        public async Task<bool> RenameAsync(string OldContactFolderName, string NewContactFolderName)
+        public override async Task RenameAsync(string OldContactFolderName, string NewContactFolderName)
         {
             string contactFolderID = GetId(OldContactFolderName);
 
-            //if contactFolder exists
-            if (contactFolderID != "")
+            try
             {
-                try
-                {
-                    Microsoft.Graph.ContactFolder tempContactFolder = connection.GetGraphClient().Me.ContactFolders[contactFolderID].Request().GetAsync().Result;
-                    tempContactFolder.DisplayName = NewContactFolderName;
-                    await connection.GetGraphClient().Me.ContactFolders[contactFolderID].Request().UpdateAsync(tempContactFolder);
+                Microsoft.Graph.ContactFolder tempContactFolder = connection.GetGraphClient().Me.ContactFolders[contactFolderID].Request().GetAsync().Result;
+                tempContactFolder.DisplayName = NewContactFolderName;
+                await connection.GetGraphClient().Me.ContactFolders[contactFolderID].Request().UpdateAsync(tempContactFolder);
 
-                    _contactFolderIds.Remove(OldContactFolderName.ToUpper());
-                    return true;
-                }
-                catch (Exception e)
-                {
-                    Debug.WriteLine("ERROR RenameAsync " + e.Message);
-                    return false;
-                }
+                _contactFolderIds.Remove(OldContactFolderName.ToUpper());
             }
-            else return false;
+            catch (Exception e)
+            {
+                Debug.WriteLine("ERROR RenameAsync " + e.Message);
+                throw e;
+            }
         }
     }
 
-    public class ContactFolder
+    public class ContactFolder : GraphContainer<Microsoft.Graph.Contact>
     {
-        private string contactFolderName = "";
-        private string contactFolderId = "";
         private bool useDefault = false;
 
-        private ContactFolders parent;
-
-        public string ContactFolderName { get => UseDefault ? null : contactFolderName; }
-        public string ContactFolderId { get => UseDefault ? null : contactFolderId; }
-        public bool UseDefault { get { return useDefault; } set { useDefault = value; contactFolderName = null; contactFolderId = null; } }
+        public string ContactFolderName { get => UseDefault ? null : name; }
+        public string ContactFolderId { get => UseDefault ? null : id; }
+        public bool UseDefault { get { return useDefault; } set { useDefault = value; name = null; id = null; } }
 
         public delegate void AddEventHandler(string ID);
         public AddEventHandler Event_Add = null;
@@ -765,15 +784,13 @@ namespace CopyO2O.Office365
         /// <param name="Name">Display name of a folder. If empty or null the default folder will be used.</param>
         /// <param name="Id">ID of the folder</param>
         /// 
-        public ContactFolder(ContactFolders Parent, string Name, string Id)
+        public ContactFolder(ContactFolders Parent, string Name, string Id) : base (Parent, Name, Id)
         {
-            parent = Parent;
-            
             //if not default
             if ((Name ?? "") != "")
             {
-                contactFolderName = Name;
-                contactFolderId = Id;
+                name = Name;
+                id = Id;
             }
             else //use default folder - which does not have a name *hrgh*
             {
@@ -787,43 +804,40 @@ namespace CopyO2O.Office365
         /// <param name="ItemId"></param>
         /// <returns>Return the contact object</returns>
         /// 
-        public Microsoft.Graph.Contact this[string ItemId]
+        public override Microsoft.Graph.Contact Get(string ItemId)
         {
-            get
+            bool retry = false;
+
+            do
             {
-                bool retry = false;
-
-                do
+                try
                 {
-                    try
+                    //if default folder
+                    if (this.useDefault)
+                        return (parent as ContactFolders).connection.GetGraphClient().Me.Contacts[ItemId].Request().GetAsync().Result;
+                    else
+                        return (parent as ContactFolders).connection.GetGraphClient().Me.ContactFolders[Id].Contacts[ItemId].Request().GetAsync().Result;
+                }
+                catch (Microsoft.Graph.ServiceException e)
+                {
+                    Debug.WriteLine("ERROR ContactFolder THIS " + e.Message);
+                    retry = false;
+
+                    //if service is busy, too many connection, aso. retry request
+                    if (e.StatusCode.ToString() == "429")
                     {
-                        //if default folder
-                        if (this.useDefault)
-                            return parent.connection.GetGraphClient().Me.Contacts[ItemId].Request().GetAsync().Result;
-                        else
-                            return parent.connection.GetGraphClient().Me.ContactFolders[contactFolderId].Contacts[ItemId].Request().GetAsync().Result;
+                        int sleeptime = (parent as ContactFolders).connection.DefaultRetryDelay;
+
+                        if (e.ResponseHeaders.RetryAfter != null)
+                            sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
+
+                        System.Threading.Thread.Sleep(sleeptime);
+                        retry = true;
                     }
-                    catch (Microsoft.Graph.ServiceException e)
-                    {
-                        Debug.WriteLine("ERROR ContactFolder THIS " + e.Message);
-                        retry = false;
+                }
+            } while (retry == true);
 
-                        //if service is busy, too many connection, aso. retry request
-                        if (e.StatusCode.ToString() == "429")
-                        {
-                            int sleeptime = parent.connection.DefaultRetryDelay;
-
-                            if (e.ResponseHeaders.RetryAfter != null)
-                                sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
-
-                            System.Threading.Thread.Sleep(sleeptime);
-                            retry = true;
-                        }
-                    }
-                } while (retry == true);
-
-                return null;                
-            }
+            return null;
         }
 
         /// <summary>
@@ -836,12 +850,12 @@ namespace CopyO2O.Office365
             List<Microsoft.Graph.Contact> result = new List<Microsoft.Graph.Contact>();
 
             List<QueryOption> options = new List<QueryOption>();
-            options.Add(new QueryOption("$top", parent.connection.MaxItemsPerRequest.ToString()));
+            options.Add(new QueryOption("$top", (parent as ContactFolders).connection.MaxItemsPerRequest.ToString()));
 
             //if default folder
             if (useDefault)
             {
-                IUserContactsCollectionPage items = await parent.connection.GetGraphClient().Me.Contacts.Request(options).GetAsync();
+                IUserContactsCollectionPage items = await (parent as ContactFolders).connection.GetGraphClient().Me.Contacts.Request(options).GetAsync();
 
                 //if at least one item found
                 if (items != null)
@@ -863,7 +877,7 @@ namespace CopyO2O.Office365
             }
             else
             {
-                IContactFolderContactsCollectionPage items = await parent.connection.GetGraphClient().Me.ContactFolders[contactFolderId].Contacts.Request(options).GetAsync();
+                IContactFolderContactsCollectionPage items = await (parent as ContactFolders).connection.GetGraphClient().Me.ContactFolders[Id].Contacts.Request(options).GetAsync();
 
                 //if at least one item found
                 if (items != null)
@@ -893,7 +907,7 @@ namespace CopyO2O.Office365
         /// <param name="item">New contact info.</param>
         /// <returns>Return the new created contact.</returns>
         /// 
-        public async Task<Microsoft.Graph.Contact> AddAsync(Microsoft.Graph.Contact item)
+        public override async Task<Microsoft.Graph.Contact> AddAsync(Microsoft.Graph.Contact item)
         {
             bool retry = false;
 
@@ -905,9 +919,9 @@ namespace CopyO2O.Office365
 
                     //if the default root should be used
                     if (useDefault)
-                        result = await parent.connection.GetGraphClient().Me.Contacts.Request().AddAsync(item);
+                        result = await (parent as ContactFolders).connection.GetGraphClient().Me.Contacts.Request().AddAsync(item);
                     else
-                        result = await parent.connection.GetGraphClient().Me.ContactFolders[contactFolderId].Contacts.Request().AddAsync(item);
+                        result = await (parent as ContactFolders).connection.GetGraphClient().Me.ContactFolders[Id].Contacts.Request().AddAsync(item);
 
                     //if a add-event handler is defined
                     if (Event_Add != null)
@@ -925,7 +939,7 @@ namespace CopyO2O.Office365
                     //if service is busy, too many connection, aso. retry request
                     if (e.StatusCode.ToString() == "429")
                     {
-                        int sleeptime = parent.connection.DefaultRetryDelay;
+                        int sleeptime = (parent as ContactFolders).connection.DefaultRetryDelay;
 
                         if (e.ResponseHeaders.RetryAfter != null)
                             sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
@@ -1042,7 +1056,7 @@ namespace CopyO2O.Office365
             do
             {
                 try
-                { await parent.connection.GetGraphClient().Me.Contacts[itemId].Request().UpdateAsync(updatedItem); }
+                { await (parent as ContactFolders).connection.GetGraphClient().Me.Contacts[itemId].Request().UpdateAsync(updatedItem); }
                 catch (Microsoft.Graph.ServiceException e)
                 {
                     Debug.WriteLine("ERROR UpdateContactAsync " + e.Message);
@@ -1051,7 +1065,7 @@ namespace CopyO2O.Office365
                     //if service is busy, too many connection, aso. retry request
                     if (e.StatusCode.ToString() == "429")
                     {
-                        int sleeptime = parent.connection.DefaultRetryDelay;
+                        int sleeptime = (parent as ContactFolders).connection.DefaultRetryDelay;
 
                         if (e.ResponseHeaders.RetryAfter != null)
                             sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
@@ -1073,7 +1087,7 @@ namespace CopyO2O.Office365
             {
                 try
                 {
-                    await parent.connection.GetGraphClient().Me.Contacts[itemId].Photo.Content.Request().PutAsync(file).ContinueWith((i) => { file.Dispose(); });
+                    await (parent as ContactFolders).connection.GetGraphClient().Me.Contacts[itemId].Photo.Content.Request().PutAsync(file).ContinueWith((i) => { file.Dispose(); });
                 }
                 catch (Microsoft.Graph.ServiceException e)
                 {
@@ -1083,7 +1097,7 @@ namespace CopyO2O.Office365
                     //if service is busy, too many connection, aso. retry request
                     if (e.StatusCode.ToString() == "429")
                     {
-                        int sleeptime = parent.connection.DefaultRetryDelay;
+                        int sleeptime = (parent as ContactFolders).connection.DefaultRetryDelay;
 
                         if (e.ResponseHeaders.RetryAfter != null)
                             sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
@@ -1100,7 +1114,7 @@ namespace CopyO2O.Office365
         /// </summary>
         /// <param name="itemId">ID of the contact to delete</param>
         /// 
-        public async Task<bool> DeleteAsync(string itemId)
+        public override async Task RemoveAsync(string itemId)
         {
             bool retry = false;
 
@@ -1108,8 +1122,7 @@ namespace CopyO2O.Office365
             {
                 try
                 {
-                    await parent.connection.GetGraphClient().Me.Contacts[itemId].Request().DeleteAsync();
-                    return true;
+                    await (parent as ContactFolders).connection.GetGraphClient().Me.Contacts[itemId].Request().DeleteAsync();
                 }
                 catch (Microsoft.Graph.ServiceException e)
                 {
@@ -1119,7 +1132,7 @@ namespace CopyO2O.Office365
                     //if service is busy, too many connection, aso. retry request
                     if (e.StatusCode.ToString() == "429")
                     {
-                        int sleeptime = parent.connection.DefaultRetryDelay;
+                        int sleeptime = (parent as ContactFolders).connection.DefaultRetryDelay;
 
                         if (e.ResponseHeaders.RetryAfter != null)
                             sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
@@ -1129,8 +1142,6 @@ namespace CopyO2O.Office365
                     }
                 }
             } while (retry == true);
-
-            return false;
         }
 
         /// <summary>
@@ -1146,7 +1157,7 @@ namespace CopyO2O.Office365
             try
             {
                 foreach (string id in IDs)
-                { deleteThreads.Add(this.DeleteAsync(id)); }
+                { deleteThreads.Add(this.RemoveAsync(id)); }
 
                 Task.WaitAll(deleteThreads.ToArray());
                 return true;
@@ -1171,7 +1182,7 @@ namespace CopyO2O.Office365
             {
                 List<Microsoft.Graph.Contact> items = this.GetContactsAsync().Result;
                 foreach (Microsoft.Graph.Contact item in items)
-                { deleteThreads.Add(this.DeleteAsync(item.Id)); }
+                { deleteThreads.Add(this.RemoveAsync(item.Id)); }
 
                 Task.WaitAll(deleteThreads.ToArray());
                 return true;

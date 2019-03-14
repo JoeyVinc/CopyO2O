@@ -15,8 +15,8 @@ namespace CopyO2O
 #else
         static bool logOutput = false;
 #endif
-        static void Log(string value, bool toConsole = false, bool suppressDateTime = false) { Output.Print(value: (!suppressDateTime ? DateTime.Now.ToString() + " - " : "") + value, logEnabled: logOutput); if (!logOutput && toConsole) Console.Write(value); }
-        static void LogLn(string value, bool toConsole = false, bool suppressDateTime = false) { Log(value + "\n", toConsole, suppressDateTime); }
+        public static void Log(string value, bool toConsole = false, bool suppressDateTime = false) { Output.Print(value: (!suppressDateTime ? DateTime.Now.ToString() + " - " : "") + value, logEnabled: logOutput); if (!logOutput && toConsole) Console.Write(value); }
+        public static void LogLn(string value, bool toConsole = false, bool suppressDateTime = false) { Log(value + "\n", toConsole, suppressDateTime); }
 
         static void Main(string[] args)
         {
@@ -142,7 +142,7 @@ namespace CopyO2O
             { System.Net.WebRequest.DefaultWebProxy = new System.Net.WebProxy(proxy, true); }
 
             Outlook.Application outlookApp = null;
-            Office365.MSGraph office365 = null;
+            Office365.Graph office365 = null;
             try
             {
                 Log("Open Outlook...");
@@ -150,65 +150,35 @@ namespace CopyO2O
                 LogLn(" Done.", false, true);
 
                 Log("Connect to Office365...");
-                office365 = new Office365.MSGraph(appId, AppPermissions);
+                office365 = new Office365.Graph(appId, AppPermissions);
                 LogLn(" Done.", false, true);
 
                 //if calendar values should be synced
                 if (SyncCAL())
                 {
                     LogLn("Calendar: '" + calendar_source_Name + "' >> '" + (calendar_destination_Name ?? "DEFAULT") + "'" + " from " + from.ToShortDateString() + " to " + to.ToShortDateString(), true);
+                    Log("... ", true);
 
+                    LogLn("", false, true);
                     Log("Get all events of Outlook...");
                     Outlook.Calendar src_calendar = outlookApp.GetCalendar(calendar_source_Name);
                     Events srcEvents = src_calendar.GetItems(from, to);
                     LogLn(" Done. " + srcEvents.Count.ToString() + " found.", false, true);
 
-                    /*srcEvents.ForEach((item) =>
-                    {
-                        syncWork.Add(new Helpers.SyncInfo { Type = Helpers.ID_type.CalItem, OutlookID = item.OriginId, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.CREATE });
-                    });*/
-
                     Log("Get all events of O365...");
-                    Office365.Calendar o365_dest_calendar = (new Office365.Calendars(office365)).GetCalendar(calendar_destination_Name ?? "Calendar"); //Calendar is the default calendar folder
+                    Office365.Calendar o365_dest_calendar = office365.Calendars[calendar_destination_Name ?? "Calendar"]; //Calendar is the default calendar folder
                     List<Microsoft.Graph.Event> destEvents = o365_dest_calendar.GetItemsAsync(from, to).Result;
                     LogLn(" Done. " + destEvents.Count.ToString() + " found.", false, true);
 
-                    /*destEvents.ForEach((item) =>
-                    {
-                        syncWork.Add(new Helpers.SyncInfo { Type = Helpers.ID_type.CalItem, O365ID = item.Id, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.DELETE });
-                    });*/
-
-                    /*
-                    Log("Mark calendar items to delete...");
-                    List<KeyValuePair<Helpers.ID_system, string>> calendarItemsToDelete = new List<KeyValuePair<Helpers.ID_system, string>>();
-                    o365_dest_calendar.GetItemsAsync(from.AddDays(-clearpast), to).Result.ForEach((x) => { calendarItemsToDelete.Add(new KeyValuePair<Helpers.ID_system, string>(Helpers.ID_system.O365, x.Id)); });
-                    Helpers.SetIDsToRemove(calendarItemsToDelete, Helpers.ID_type.CalItem);
-
-                    
-                    LogLn(" Done.", false, true);
-
-                    /*
-                    Log("Create events in O365...");
-                    List<Office365.Replacement> replacements = new List<Office365.Replacement>(); //new List<Office365.Replacement> { new Office365.Replacement { key = "Location", regex = ".*(Vertex).*", newvalue = "Fasanenweg 9, 70771 Leinfelden-Echterdingen, Deutschland" } };
-                    o365_dest_calendar.Add(srcEvents, replacements);
-                    LogLn(" Done.", false, true);
-
-                    Log("Delete doublettes in O365...");
-                    List<string> calendarItemsFromFileToDelete = Helpers.GetIDsToRemove(Helpers.ID_type.CalItem).Where(x => (x.Key == Helpers.ID_system.O365)).Select(x => x.Value).ToList<string>();
-
-                    //if doublettes successfully deleted remove cache file
-                    if (o365_dest_calendar.Delete(calendarItemsFromFileToDelete) == true)
-                        Helpers.DeleteRemovalLog();
-                    LogLn(" Done.", false, true);
-                    */
-
                     //get all ids of outlook which have to be synced
-                    List<string> tmpCacheIds = Helpers.syncCache.Select((x) => x.OutlookID).ToList(); //all Ids in cache
+                    List<Helpers.SyncInfo> syncCache_events = Helpers.syncCache.Where(x => x.Type == Helpers.ID_type.CalItem).ToList();
+
+                    List<string> tmpCacheIds = syncCache_events.Select((x) => x.OutlookID).ToList(); //all Ids in cache
                     List<string> tmpOutlookIds = srcEvents.Select((x) => x.OriginId).ToList(); //all Ids on Outlook side
                     List<string> tmpNewOutlookIds = tmpOutlookIds.Except(tmpCacheIds).ToList(); //all Outlook-ids which are NOT contained in sync cache => all NEW outlook ids
                     List<string> tmpModifiedOutlookIds = new List<string>(); //all Outlook-ids which were modified AFTER the last sync
                     {
-                        Helpers.syncCache.ForEach(
+                        syncCache_events.ForEach(
                             (item) =>
                             {
                                 if (srcEvents.Exists(x => (x.OriginId == item.OutlookID)))
@@ -220,12 +190,12 @@ namespace CopyO2O
                     }
                     List<string> tmpDeletedOutlookIds = tmpCacheIds.Except(tmpOutlookIds).ToList(); //all Outlook-ids which are synced but does not exist anymore => all DELETED outlook ids
 
-                    tmpCacheIds = Helpers.syncCache.Select((x) => x.O365ID).ToList(); //all Ids in cache
+                    tmpCacheIds = syncCache_events.Select((x) => x.O365ID).ToList(); //all Ids in cache
                     List<string> tmpO365Ids = destEvents.Select((x) => x.Id).ToList(); //all Ids on O365 side
                     List<string> tmpNewO365Ids = tmpO365Ids.Except(tmpCacheIds).ToList(); //all O365-ids which are NOT contained in sync cache => all NEW O365 ids
                     List<string> tmpModifiedO365Ids = new List<string>(); //all O365-ids which were modified AFTER the last sync
                     {
-                        Helpers.syncCache.ForEach(
+                        syncCache_events.ForEach(
                             (item) =>
                             {
                                 if (destEvents.Exists(x => (x.Id == item.O365ID)))
@@ -246,17 +216,17 @@ namespace CopyO2O
                         tmpModifiedOutlookIds.ForEach((id) =>
                         {
                             syncWork.Add(new Helpers.SyncInfo { OutlookID = id, Type = Helpers.ID_type.CalItem, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.CREATE });
-                            syncWork.Add(new Helpers.SyncInfo { O365ID = Helpers.syncCache.Find(x => (x.OutlookID == id)).O365ID, Type = Helpers.ID_type.CalItem, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.DELETE });
+                            syncWork.Add(new Helpers.SyncInfo { O365ID = syncCache_events.Find(x => (x.OutlookID == id)).O365ID, Type = Helpers.ID_type.CalItem, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.DELETE });
                         });
 
                         //remove deleted outlook elements from o365
-                        tmpDeletedOutlookIds.ForEach((id) => syncWork.Add(new Helpers.SyncInfo { O365ID = Helpers.syncCache.Find(x => (x.OutlookID == id)).O365ID, Type = Helpers.ID_type.CalItem, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.DELETE }));
+                        tmpDeletedOutlookIds.ForEach((id) => syncWork.Add(new Helpers.SyncInfo { O365ID = syncCache_events.Find(x => (x.OutlookID == id)).O365ID, Type = Helpers.ID_type.CalItem, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.DELETE }));
 
                         //restore from Office 365 deleted outlook-contacts again
                         tmpDeletedO365Ids.ForEach((id) =>
                         {
-                            syncWork.Add(new Helpers.SyncInfo { OutlookID = Helpers.syncCache.Find(x => (x.O365ID == id)).OutlookID, Type = Helpers.ID_type.CalItem, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.CREATE });
-                            Helpers.syncCache.RemoveAll(x => (x.O365ID == id));
+                            syncWork.Add(new Helpers.SyncInfo { OutlookID = syncCache_events.Find(x => (x.O365ID == id)).OutlookID, Type = Helpers.ID_type.CalItem, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.CREATE });
+                            Helpers.syncCache.RemoveAll(x => (x.O365ID == id) && (x.Type == Helpers.ID_type.CalItem));
                         });
 
                         //if all items which does not exist in outlook should be removed from O365
@@ -264,9 +234,9 @@ namespace CopyO2O
                         { tmpNewO365Ids.ForEach((id) => syncWork.Add(new Helpers.SyncInfo { O365ID = id, Type = Helpers.ID_type.CalItem, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.DELETE })); }
                     }
 
-//===========================================
+                    //===========================================
 
-                    Log("Create events in O365...");
+                    LogLn("Create events in O365...");
                     List<Task> createTasks = new List<Task>();
                     syncWork.Where(x => ((x.SyncWorkMethod == Helpers.SyncMethod.CREATE) && (x.Type == Helpers.ID_type.CalItem))).ToList().ForEach(
                         (item) =>
@@ -275,52 +245,55 @@ namespace CopyO2O
                                 .ContinueWith((i) => Helpers.O365_Event_Added(i.Result.Id, item.OutlookID)));
                         });
                     Task.WaitAll(createTasks.ToArray());
-                    LogLn(" Done.", false, true);
+                    LogLn(" Done.");
 
-                    Log("Delete events in O365...");
+                    LogLn("Delete events in O365...");
                     List<Task> deleteTasks = new List<Task>();
                     syncWork.Where(x => ((x.SyncWorkMethod == Helpers.SyncMethod.DELETE) && (x.Type == Helpers.ID_type.CalItem))).ToList().ForEach(
                         (item) =>
                         {
-                            deleteTasks.Add(o365_dest_calendar.DeleteAsync(item.O365ID)
+                            deleteTasks.Add(o365_dest_calendar.RemoveAsync(item.O365ID)
                                 .ContinueWith((i) => Helpers.O365_Item_Removed(item.O365ID)));
                         });
                     Task.WaitAll(deleteTasks.ToArray());
-                    LogLn(" Done.", false, true);
+                    LogLn(" Done.");
 
                     //exec only if verbose logging enabled
                     if (logOutput)
                     {
-                        Log("Get count of events in O365...");
+                        Log("Validate count of events in O365...");
                         int destCount = o365_dest_calendar.GetItemsAsync(from.AddDays(-clearpast), to).Result.Count;
                         LogLn(" Done. " + destCount.ToString() + " found.", false, true);
                     }
-
-                    LogLn(srcEvents.Count.ToString() + " events copied.", true);
+                    Log("");
+                    LogLn(" Done (" + srcEvents.Count.ToString() + "/" + (tmpO365Ids.Count + createTasks.Count - deleteTasks.Count).ToString() + ")", true, true);
                 }
 
                 //if contacts should be synced
                 if (SyncCON())
                 {
                     LogLn("Contacts: '" + contacts_source_Name + "' >> '" + (contacts_destination_Name ?? "DEFAULT") + "'", true);
+                    Log("... ", true);
 
+                    LogLn("", false, true);
                     Log("Get all contacts of Outlook...");
                     Outlook.ContactFolder src_contactfolder = outlookApp.GetContactFolder(contacts_source_Name);
                     ContactCollectionType srcContacts = src_contactfolder.GetItems();
                     LogLn(" Done. " + srcContacts.Count.ToString() + " found.", false, true);
 
                     Log("Get all contacts of O365...");
-                    Office365.ContactFolder o365_dest_contactfolder = (new Office365.ContactFolders(office365)).GetContactFolder(contacts_destination_Name);
+                    Office365.ContactFolder o365_dest_contactfolder = office365.ContactFolders[contacts_destination_Name];
                     List<Microsoft.Graph.Contact> destContacts = o365_dest_contactfolder.GetContactsAsync().Result;
                     LogLn(" Done. " + destContacts.Count.ToString() + " found.", false, true);
 
                     //get all ids of outlook which have to be synced
-                    List<string> tmpCacheIds = Helpers.syncCache.Select((x) => x.OutlookID).ToList(); //all Ids in cache
+                    List<Helpers.SyncInfo> syncCache_Contacts = Helpers.syncCache.Where(x => x.Type == Helpers.ID_type.Contact).ToList();
+                    List<string> tmpCacheIds = syncCache_Contacts.Select((x) => x.OutlookID).ToList(); //all Ids in cache
                     List<string> tmpOutlookIds = srcContacts.Select((x) => x.OriginId).ToList(); //all Ids on Outlook side
                     List<string> tmpNewOutlookIds = tmpOutlookIds.Except(tmpCacheIds).ToList(); //all Outlook-ids which are NOT contained in sync cache => all NEW outlook ids
                     List<string> tmpModifiedOutlookIds = new List<string>(); //all Outlook-ids which were modified AFTER the last sync
                     {
-                        Helpers.syncCache.ForEach(
+                        syncCache_Contacts.ForEach(
                             (item) =>
                             {
                                 if (srcContacts.Exists(x => (x.OriginId == item.OutlookID)))
@@ -332,12 +305,12 @@ namespace CopyO2O
                     }
                     List<string> tmpDeletedOutlookIds = tmpCacheIds.Except(tmpOutlookIds).ToList(); //all Outlook-ids which are synced but does not exist anymore => all DELETED outlook ids
 
-                    tmpCacheIds = Helpers.syncCache.Select((x) => x.O365ID).ToList(); //all Ids in cache
+                    tmpCacheIds = syncCache_Contacts.Select((x) => x.O365ID).ToList(); //all Ids in cache
                     List<string> tmpO365Ids = destContacts.Select((x) => x.Id).ToList(); //all Ids on O365 side
                     List<string> tmpNewO365Ids = tmpO365Ids.Except(tmpCacheIds).ToList(); //all O365-ids which are NOT contained in sync cache => all NEW O365 ids
                     List<string> tmpModifiedO365Ids = new List<string>(); //all O365-ids which were modified AFTER the last sync
                     {
-                        Helpers.syncCache.ForEach(
+                        syncCache_Contacts.ForEach(
                             (item) =>
                             {
                                 if (destContacts.Exists(x => (x.Id == item.O365ID)))
@@ -358,17 +331,17 @@ namespace CopyO2O
                         tmpModifiedOutlookIds.ForEach((id) =>
                         {
                             syncWork.Add(new Helpers.SyncInfo { OutlookID = id, Type = Helpers.ID_type.Contact, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.CREATE });
-                            syncWork.Add(new Helpers.SyncInfo { O365ID = Helpers.syncCache.Find(x => (x.OutlookID == id)).O365ID, Type = Helpers.ID_type.Contact, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.DELETE });
+                            syncWork.Add(new Helpers.SyncInfo { O365ID = syncCache_Contacts.Find(x => (x.OutlookID == id)).O365ID, Type = Helpers.ID_type.Contact, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.DELETE });
                         });
                         
                         //remove deleted outlook elements from o365
-                        tmpDeletedOutlookIds.ForEach((id) => syncWork.Add(new Helpers.SyncInfo { O365ID = Helpers.syncCache.Find(x => (x.OutlookID == id)).O365ID, Type = Helpers.ID_type.Contact, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.DELETE }));
+                        tmpDeletedOutlookIds.ForEach((id) => syncWork.Add(new Helpers.SyncInfo { O365ID = syncCache_Contacts.Find(x => (x.OutlookID == id)).O365ID, Type = Helpers.ID_type.Contact, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.DELETE }));
 
                         //restore from Office 365 deleted outlook-contacts again
                         tmpDeletedO365Ids.ForEach((id) =>
                         {
-                            syncWork.Add(new Helpers.SyncInfo { OutlookID = Helpers.syncCache.Find(x => (x.O365ID == id)).OutlookID, Type = Helpers.ID_type.Contact, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.CREATE });
-                            Helpers.syncCache.RemoveAll(x => (x.O365ID == id));
+                            syncWork.Add(new Helpers.SyncInfo { OutlookID = syncCache_Contacts.Find(x => (x.O365ID == id)).OutlookID, Type = Helpers.ID_type.Contact, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.CREATE });
+                            Helpers.syncCache.RemoveAll(x => (x.O365ID == id) && (x.Type == Helpers.ID_type.Contact));
                         });
 
                         //if all items which does not exist in outlook should be removed from O365
@@ -376,7 +349,7 @@ namespace CopyO2O
                         { tmpNewO365Ids.ForEach((id) => syncWork.Add(new Helpers.SyncInfo { O365ID = id, Type = Helpers.ID_type.Contact, SyncDirection = Helpers.SyncDirection.ToRight, SyncWorkMethod = Helpers.SyncMethod.DELETE })); }
                     }
 
-                    Log("Create contacts in O365...");
+                    LogLn("Create contacts in O365...");
                     List<Task> createTasks = new List<Task>();
                     syncWork.Where(x => ((x.SyncWorkMethod == Helpers.SyncMethod.CREATE) && (x.Type == Helpers.ID_type.Contact))).ToList().ForEach(
                         (item) =>
@@ -385,28 +358,28 @@ namespace CopyO2O
                                 .ContinueWith((i) => Helpers.O365_Contact_Added(i.Result.Id, item.OutlookID)));
                         });
                     Task.WaitAll(createTasks.ToArray());
-                    LogLn(" Done.", false, true);
+                    LogLn(" Done.");
 
-                    Log("Delete contacts in O365...");
+                    LogLn("Delete contacts in O365...");
                     List<Task> deleteTasks = new List<Task>();
                     syncWork.Where(x => ((x.SyncWorkMethod == Helpers.SyncMethod.DELETE) && (x.Type == Helpers.ID_type.Contact))).ToList().ForEach(
                         (item) =>
                         {
-                            deleteTasks.Add(o365_dest_contactfolder.DeleteAsync(item.O365ID)
+                            deleteTasks.Add(o365_dest_contactfolder.RemoveAsync(item.O365ID)
                                 .ContinueWith((i) => Helpers.O365_Item_Removed(item.O365ID)));
                         });
                     Task.WaitAll(deleteTasks.ToArray());
-                    LogLn(" Done.", false, true);
+                    LogLn(" Done.");
 
                     //exec only if verbose logging enabled
                     if (logOutput)
                     {
-                        Log("Get count of contacts in O365...");
+                        Log("Validate count of contacts in O365...");
                         int destCount = o365_dest_contactfolder.GetContactsAsync().Result.Count;
                         LogLn(" Done. " + destCount.ToString() + " found.", false, true);
                     }
-
-                    LogLn(srcContacts.Count.ToString() + " contacts copied.", true);
+                    Log("");
+                    LogLn(" Done (" + srcContacts.Count.ToString() + "/" + (tmpO365Ids.Count + createTasks.Count - deleteTasks.Count).ToString() + ")", true, true);
                 }
             }
             catch (Exception e)
