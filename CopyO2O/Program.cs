@@ -31,7 +31,7 @@ namespace CopyO2O
             string contacts_source_Name = "";
             string contacts_destination_Name = "";
             string proxy = "";
-            bool clrNotExisting = true; //clear every items of target which does not exist in source side
+            bool clrNotExisting = true; //clear every items of target which does not exist on source side
 
             bool SyncCAL() { return (calendar_source_Name != "") && (calendar_destination_Name != ""); }
             bool SyncCON() { return (contacts_source_Name != "") && (contacts_destination_Name != ""); }
@@ -170,26 +170,17 @@ namespace CopyO2O
                     List<Microsoft.Graph.Event> destEvents = o365_dest_calendar.GetItemsAsync(from, to).Result;
                     LogLn(" Done. " + destEvents.Count.ToString() + " found.", false, true);
 
-                    //get all ids of outlook which have to be synced
+                    //get all events which are stored in the sync cache
                     List<Helpers.SyncInfo> syncCache_events = Helpers.syncCache.Where(x => x.Type == Helpers.ID_type.CalItem).ToList();
 
+                    //define NEW, MODIFIED and DELETED events of the local Outlook
                     List<string> tmpCacheIds = syncCache_events.Select((x) => x.OutlookID).ToList(); //all Ids in cache
                     List<string> tmpOutlookIds = srcEvents.Select((x) => x.OriginId).ToList(); //all Ids on Outlook side
                     List<string> tmpNewOutlookIds = tmpOutlookIds.Except(tmpCacheIds).ToList(); //all Outlook-ids which are NOT contained in sync cache => all NEW outlook ids
-                    List<string> tmpModifiedOutlookIds = new List<string>(); //all Outlook-ids which were modified AFTER the last sync
-                    {
-                        syncCache_events.ForEach(
-                            (item) =>
-                            {
-                                if (srcEvents.Exists(x => (x.OriginId == item.OutlookID)))
-                                {
-                                    if (srcEvents.Find(x => (x.OriginId == item.OutlookID)).LastModTime > item.LastSyncTime.AddSeconds(10))
-                                        tmpModifiedOutlookIds.Add(item.OutlookID);
-                                }
-                            });
-                    }
+                    List<string> tmpModifiedOutlookIds = GetModifiedItems(srcEvents, syncCache_events);
                     List<string> tmpDeletedOutlookIds = tmpCacheIds.Except(tmpOutlookIds).ToList(); //all Outlook-ids which are synced but does not exist anymore => all DELETED outlook ids
 
+                    //define NEW, MODIFIED and DELETED events of Office 365
                     tmpCacheIds = syncCache_events.Select((x) => x.O365ID).ToList(); //all Ids in cache
                     List<string> tmpO365Ids = destEvents.Select((x) => x.Id).ToList(); //all Ids on O365 side
                     List<string> tmpNewO365Ids = tmpO365Ids.Except(tmpCacheIds).ToList(); //all O365-ids which are NOT contained in sync cache => all NEW O365 ids
@@ -286,8 +277,10 @@ namespace CopyO2O
                     List<Microsoft.Graph.Contact> destContacts = o365_dest_contactfolder.GetContactsAsync().Result;
                     LogLn(" Done. " + destContacts.Count.ToString() + " found.", false, true);
 
-                    //get all ids of outlook which have to be synced
+                    //get all events which are stored in the sync cache
                     List<Helpers.SyncInfo> syncCache_Contacts = Helpers.syncCache.Where(x => x.Type == Helpers.ID_type.Contact).ToList();
+
+                    //define NEW, MODIFIED and DELETED events of the local Outlook
                     List<string> tmpCacheIds = syncCache_Contacts.Select((x) => x.OutlookID).ToList(); //all Ids in cache
                     List<string> tmpOutlookIds = srcContacts.Select((x) => x.OriginId).ToList(); //all Ids on Outlook side
                     List<string> tmpNewOutlookIds = tmpOutlookIds.Except(tmpCacheIds).ToList(); //all Outlook-ids which are NOT contained in sync cache => all NEW outlook ids
@@ -305,6 +298,7 @@ namespace CopyO2O
                     }
                     List<string> tmpDeletedOutlookIds = tmpCacheIds.Except(tmpOutlookIds).ToList(); //all Outlook-ids which are synced but does not exist anymore => all DELETED outlook ids
 
+                    //define NEW, MODIFIED and DELETED events of Office 365
                     tmpCacheIds = syncCache_Contacts.Select((x) => x.O365ID).ToList(); //all Ids in cache
                     List<string> tmpO365Ids = destContacts.Select((x) => x.Id).ToList(); //all Ids on O365 side
                     List<string> tmpNewO365Ids = tmpO365Ids.Except(tmpCacheIds).ToList(); //all O365-ids which are NOT contained in sync cache => all NEW O365 ids
@@ -418,6 +412,25 @@ namespace CopyO2O
 #if DEBUG
             Console.ReadLine();
 #endif
+        }
+
+        private static List<string> GetModifiedItems(Events srcEvents, List<Helpers.SyncInfo> syncCache_events)
+        {
+            List<string> tmpModifiedOutlookIds = new List<string>(); //all Outlook-ids which were modified AFTER the last sync
+            {
+                syncCache_events.ForEach(
+                    (item) =>
+                    {
+                        //if the current item could still be found in Outlook (not removed)
+                        if (srcEvents.Exists(x => (x.OriginId == item.OutlookID)))
+                        {
+                            if (srcEvents.Find(x => (x.OriginId == item.OutlookID)).LastModTime > item.LastSyncTime.AddSeconds(10))
+                                tmpModifiedOutlookIds.Add(item.OutlookID);
+                        }
+                    });
+            }
+
+            return tmpModifiedOutlookIds;
         }
     }
 }

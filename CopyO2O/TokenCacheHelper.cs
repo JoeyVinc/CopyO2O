@@ -12,17 +12,20 @@ namespace CopyO2O
 {
     static class TokenCacheHelper
     {
-        private static string _systemId;
+        /// <summary>
+        /// Path to the token cache
+        /// </summary>
+        private static string CacheFilePath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) + @"\UserToken.cache";
 
-        private static string GetSystemId()
+        private static string _cipher = null;
+        private static string GetCipher()
         {
-            if (_systemId == null)
+            if (_cipher == null)
             {
-                _systemId = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)
-                    .OpenSubKey(@"SOFTWARE\Microsoft\Cryptography").GetValue("MachineGuid").ToString();
+                _cipher = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)
+                    .OpenSubKey(@"SOFTWARE\Microsoft\Cryptography").GetValue("MachineGuid").ToString() + CacheFilePath;
             }
-
-            return _systemId;
+            return _cipher;
         }
 
         /// <summary>
@@ -42,11 +45,6 @@ namespace CopyO2O
 
         static TokenCache usertokenCache;
 
-        /// <summary>
-        /// Path to the token cache
-        /// </summary>
-        public static string CacheFilePath = System.Reflection.Assembly.GetExecutingAssembly().Location + "msal.cache";
-
         private static readonly object FileLock = new object();
 
         public static void BeforeAccessNotification(TokenCacheNotificationArgs args)
@@ -55,7 +53,7 @@ namespace CopyO2O
             {
                 if (File.Exists(CacheFilePath))
                 {
-                    byte[] decryptedbytes = SimpleAES.DecryptString(File.ReadAllBytes(CacheFilePath), GetSystemId());
+                    byte[] decryptedbytes = SimpleAES.DecryptString(File.ReadAllBytes(CacheFilePath), GetCipher());
                     args.TokenCache.Deserialize(decryptedbytes);
                 }
                 else args.TokenCache.Deserialize(null);
@@ -69,7 +67,7 @@ namespace CopyO2O
             {
                 lock (FileLock)
                 {
-                    byte[] encryptedargs = SimpleAES.EncryptString(args.TokenCache.Serialize(), GetSystemId());
+                    byte[] encryptedargs = SimpleAES.EncryptString(args.TokenCache.Serialize(), GetCipher());
 
                     // reflect changes in the persistent store
                     File.WriteAllBytes(CacheFilePath, encryptedargs);

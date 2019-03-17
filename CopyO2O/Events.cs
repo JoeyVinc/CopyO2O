@@ -51,11 +51,8 @@ namespace CopyO2O
         protected EventOriginEnum? _eventOrigin;
         public EventOriginEnum? EventOrigin { get => _eventOrigin; }
 
-        protected string _originId;
-        public string OriginId { get => _originId; }
-
-        protected DateTime _lastModTime;
-        public DateTime LastModTime { get => _lastModTime; }
+        public string OriginId;
+        public DateTime LastModTime;
 
         public TypeEnum? EventType = null;
         public RecurrencePattern Recurrence = null;
@@ -88,7 +85,7 @@ namespace CopyO2O
 
         public Events Exceptions { get; set; }
 
-        public Event() { }
+//        public Event() { }
 
         public override bool Equals(object obj)
         {

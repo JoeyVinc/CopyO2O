@@ -31,6 +31,9 @@ namespace CopyO2O
     {
         public Boolean HasPhoto { get { return this.PictureTmpFilename != null; } }
 
+        public string OriginId;
+        public DateTime? LastModTime;
+
         public string SaveAs;
         public string DisplayName;
         public string Title;

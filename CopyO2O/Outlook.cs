@@ -44,8 +44,10 @@ namespace CopyO2O.Outlook
             foreach (OutlookInterop.AppointmentItem aptmItem in eventsFiltered)
             {
                 Event tmpEvent = new Event();
-                tmpEvent.Subject = aptmItem.Subject;
+                tmpEvent.OriginId = aptmItem.EntryID;
+                tmpEvent.LastModTime = aptmItem.LastModificationTime;
 
+                tmpEvent.Subject = aptmItem.Subject;
                 tmpEvent.StartDateTime = aptmItem.Start;
                 tmpEvent.StartTimeZone = aptmItem.StartTimeZone.ID;
                 tmpEvent.StartUTC = aptmItem.StartUTC;
@@ -220,6 +222,9 @@ namespace CopyO2O.Outlook
             foreach (OutlookInterop.ContactItem item in mAPI.Items.OfType<OutlookInterop.ContactItem>())
             {
                 ContactType tmpItem = new ContactType();
+                tmpItem.OriginId = item.EntryID;
+                tmpItem.LastModTime = item.LastModificationTime;
+
                 tmpItem.DisplayName = item.FullName;
                 tmpItem.Title = item.Title;
                 tmpItem.Surname = item.LastName;
@@ -349,22 +354,29 @@ namespace CopyO2O.Outlook
         {
             Calendar result = alreadyOpenedCalendars.Find(x => x.Name == calendarPath);
 
-            //if the calendar could not be found
-            if (result == null)
+            try
             {
-                string[] names = calendarPath.Split('\\');
-                OutlookInterop.MAPIFolder tmpFolder = appInstance.Session.Folders[names[0]];
-
-                foreach (string name in names.Skip(1))
+                //if the calendar could not be found
+                if (result == null)
                 {
-                    tmpFolder = tmpFolder.Folders[name];
+                    string[] names = calendarPath.Split('\\');
+                    OutlookInterop.MAPIFolder tmpFolder = appInstance.Session.Folders[names[0]];
+
+                    foreach (string name in names.Skip(1))
+                    {
+                        tmpFolder = tmpFolder.Folders[name];
+                    }
+
+                    result = new Calendar(tmpFolder);
+                    this.alreadyOpenedCalendars.Add(result);
                 }
-
-                result = new Calendar(tmpFolder);
-                this.alreadyOpenedCalendars.Add(result);
-            }
-
             return result;
+            }
+            catch (Exception e)
+            {
+                Debug.WriteLine("ERROR GetCalendar " + e.Message);
+                throw new Exception(calendarPath + " could not be found!");
+            }
         }
 
         public ContactFolder GetContactFolder(string contactFolderPath)
