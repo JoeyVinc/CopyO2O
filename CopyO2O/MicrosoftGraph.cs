@@ -44,6 +44,7 @@ namespace CopyO2O.Office365
 
                 //open connection, request access token, test connection
                 User testResult = GetGraphClient().Me.Request().GetAsync().Result;
+                //User testResult = RunGraphCommand<User>(async () => { return await GetGraphClient().Me.Request().GetAsync(); }).Result;
                 IsValid = true;
             }
             catch (AggregateException ae)
@@ -66,7 +67,62 @@ namespace CopyO2O.Office365
 
             Calendars = new Calendars(this);
             ContactFolders = new ContactFolders(this);
+        }
 
+        /// <summary>
+        /// TRY TO DEFINE A CENTRAL FUNCTION FOR ALL GRAPH REQUESTS WHICH HANDLES THE EXCEPTIONS
+        /// </summary>
+        /// <typeparam name="ResultType"></typeparam>
+        /// <param name="test"></param>
+        /// <returns></returns>
+        public async Task<ResultType> RunGraphCommand<ResultType>(Func<Task<ResultType>> test)
+        {
+            object result = null;
+
+            int retryCount = 0;
+            bool retry = false;
+            do
+            {
+                try
+                {
+                    return await test.Invoke();                    
+                }
+                catch (Microsoft.Graph.ServiceException e)
+                {
+                    Debug.WriteLine("ERROR Running command " + test.ToString() + " : " + e.Message);
+                    retry = false;
+
+                    //if service is busy, too many connection, aso. retry request
+                    if (e.StatusCode.ToString() == "429")
+                    {
+                        int sleeptime = DefaultRetryDelay;
+
+                        if (e.ResponseHeaders.RetryAfter != null)
+                            sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
+
+                        await Task.Delay(sleeptime);
+                        retry = true;
+                    }
+                    else
+                    {
+                        await Task.Delay(DefaultRetryDelay);
+                        retryCount += 5;
+                        retry = true;
+                    }
+                }
+                catch (Exception e)
+                {
+                    {
+                        await Task.Delay(DefaultRetryDelay);
+                        retryCount += 9;
+                        retry = true;
+                    }
+                }
+
+                retryCount++;
+            } while ((retry == true) && (retryCount <= 10));
+
+            return (ResultType)result;
         }
 
         private async Task<AuthenticationResult> AuthResultAsync()
@@ -134,9 +190,6 @@ namespace CopyO2O.Office365
         public ItemType this[string Id] { get => this.Get(Id); }
         public abstract ItemType Get(string Id);
 
-        //public abstract Task<string> AddAsync(object Item);
-        //public abstract Task<bool> RemoveAsync(string Id);
-
         //constructor
         public GraphContainer(object Parent, string Name, string Id)
         {
@@ -148,8 +201,8 @@ namespace CopyO2O.Office365
 
     public interface IGraphContainer
     {
-         string Name { get; }
-         string Id { get; }
+        string Name { get; }
+        string Id { get; }
 
         Task<string> AddAsync(object Item);
         Task<bool> RemoveAsync(string Id);
@@ -362,23 +415,23 @@ namespace CopyO2O.Office365
                         if (e.ResponseHeaders.RetryAfter != null)
                             sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
 
-                        System.Threading.Thread.Sleep(sleeptime);
+                        await Task.Delay(sleeptime);
                         retry = true;
                     }
                     //if the specified object was not found in the store => know BUG in O365; could be a false negative!
                     //therefore: Retry one more time after one second.
                     else
                     {
-                        System.Threading.Thread.Sleep(1000);
+                        await Task.Delay((parent as Calendars).connection.DefaultRetryDelay);
                         retry = true;
-                        retryCounter = retryCounter + 98;
+                        retryCounter = retryCounter + 90;
                     }
 
                     retryCounter++;
                 }
             } while (retry && (retryCounter <= 100)); //max 100 loops
 
-            return result;
+            throw new Exception("ERROR getItemsAsync");
         }
 
         public async Task<Events> GetItemsAsync(DateTime from, DateTime to)
@@ -515,11 +568,16 @@ namespace CopyO2O.Office365
                             if (e.ResponseHeaders.RetryAfter != null)
                                 sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
 
-                            System.Threading.Thread.Sleep(sleeptime);
+                            await Task.Delay(sleeptime);
                             retry = true;
                         }
                     }
                 } while (retry == true);
+                /*return (await (parent as Calendars).connection.RunGraphCommand(
+                    async () =>
+                    {
+                        return await (parent as Calendars).connection.GetGraphClient().Me.Calendars[this.Id].Events.Request().AddAsync(item as Microsoft.Graph.Event);
+                    })).Id;*/
             }
             else if (item is Event)
             {
@@ -630,7 +688,7 @@ namespace CopyO2O.Office365
                         if (e.ResponseHeaders.RetryAfter != null)
                             sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
 
-                        System.Threading.Thread.Sleep(sleeptime);
+                        await Task.Delay(sleeptime);
                         retry = true;
                     }
                 }
@@ -661,7 +719,7 @@ namespace CopyO2O.Office365
                         if (e.ResponseHeaders.RetryAfter != null)
                             sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
 
-                        System.Threading.Thread.Sleep(sleeptime);
+                        await Task.Delay(sleeptime);
                         retry = true;
                     }
                 }
@@ -716,14 +774,6 @@ namespace CopyO2O.Office365
             }
         }
     }
-
-    /*public class CalendarItem : GraphItem<Microsoft.Graph.Event>
-    {
-        public override string Id { get => this.OriginItem.Id; }
-        public override string Name { get => this.OriginItem.Subject; }
-
-        public CalendarItem(Microsoft.Graph.Event item) : base(item) { }
-    }*/
 
     public class ContactFolders : GraphContainerCollection<ContactFolder>
     {
@@ -1249,6 +1299,13 @@ namespace CopyO2O.Office365
             } while (retry == true);
         }
 
+        /// <summary>
+        /// Adds a contact picture to the specified contact.
+        /// </summary>
+        /// <param name="itemId">ID of the contact</param>
+        /// <param name="ImgFile">File to upload.</param>
+        /// <returns></returns>
+        /// 
         public async Task SetPhoto(string itemId, string ImgFile)
         {
             System.IO.FileStream file = new System.IO.FileStream(ImgFile, System.IO.FileMode.Open);

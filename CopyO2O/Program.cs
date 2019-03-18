@@ -124,7 +124,7 @@ namespace CopyO2O
             }
             catch (Exception e)
             {
-                LogLn("Error: " + e.Message + "\n", true);
+                LogLn("Error: " + e.Message + "\r\n", true);
                 LogLn("Parameters:\r\n"
                     + "/CAL:\"<source>\";\"<destination>\" : Calendar source and destination\r\n"
                     + "/CON:\"<source>\";\"<destination>\" : Contacts source and destination\r\n"
