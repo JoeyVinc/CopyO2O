@@ -237,6 +237,14 @@ namespace CopyO2O
                     LogLn(" Done (" + srcContacts.Count.ToString() + "/" + (destContacts.Count + countOfcreateTasks - countOfdeleteTasks).ToString() + ")", true, true);
                 }
             }
+            catch (AggregateException ae)
+            {
+                ae.Handle((e) => { LogLn(" Error occured: " + e.Message + "\nConnection could not be establised! Proxy?", true); return true; });
+            }
+            catch (System.Net.WebException e)
+            {
+                LogLn(" Error occured: " + e.Message + "\nConnection could not be establised! Proxy?", true);
+            }
             catch (Exception e)
             {
                 if (e.InnerException != null)

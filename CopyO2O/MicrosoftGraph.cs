@@ -46,6 +46,17 @@ namespace CopyO2O.Office365
                 User testResult = GetGraphClient().Me.Request().GetAsync().Result;
                 IsValid = true;
             }
+            catch (AggregateException ae)
+            {
+                IsValid = false;
+                ae.Handle((e) =>
+                {
+                    Debug.WriteLine("ERROR MSGraph " + e.Message);
+                    if ((e is System.Net.Http.HttpRequestException) || (e is System.Net.Sockets.SocketException))
+                        throw new System.Net.WebException(e.Message);
+                    return false;
+                });
+            }
             catch (Exception e)
             {
                 Debug.WriteLine("ERROR MSGraph " + e.Message);
@@ -61,6 +72,11 @@ namespace CopyO2O.Office365
         private async Task<AuthenticationResult> AuthResultAsync()
         {
             try { return await appClient.AcquireTokenSilentAsync(Scope, appClient.GetAccountsAsync().Result.First()); }
+            catch (System.Net.Http.HttpRequestException e)
+            {
+                Debug.WriteLine("ERROR AuthResultAsync " + e.Message);
+                throw e;
+            }
             catch (Exception e)
             {
                 Debug.WriteLine("ERROR AuthResultAsync " + e.Message);
