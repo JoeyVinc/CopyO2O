@@ -25,7 +25,9 @@ namespace CopyO2O
             List<string> AppPermissions = new List<string> { "User.Read", "Calendars.ReadWrite", "Contacts.ReadWrite" };
 
             DateTime from = DateTime.Now.AddMonths(-1);
-            DateTime to = DateTime.Now.AddMonths(1);
+            from = from.AddHours(-from.Hour).AddMinutes(-from.Minute).AddSeconds(-from.Second).AddMilliseconds(-from.Millisecond);
+            DateTime to = from.AddMonths(2).AddHours(23).AddMinutes(59).AddSeconds(59).AddMilliseconds(999);
+
             int clearpast = 0;
             string calendar_source_Name = "";
             string calendar_destination_Name = "";
@@ -86,7 +88,6 @@ namespace CopyO2O
                         case "/TO":
                             if (!DateTime.TryParse(parValue, out to))
                                 to = DateTime.Today.AddDays(int.Parse(parValue));
-                            to = to.AddHours(23).AddMinutes(59).AddSeconds(59).AddMilliseconds(999);
                             break;
                         case "/CLEAR":
                             clearpast = Math.Abs(int.Parse(parValue));
@@ -175,28 +176,9 @@ namespace CopyO2O
                     Events destEvents = o365_dest_calendar.GetItemsAsync(from, to).Result;
                     LogLn(" Done. " + destEvents.Count.ToString() + " found.", false, true);
 
-                    Log("Analyse sync tasks (NEW, MOD, DEL) ...");
-                    //get all events which are stored in the sync cache
-                    List<SyncHelpers.SyncInfo> syncCache_events = SyncHelpers.syncCache.Where(x => x.Type == SyncHelpers.ID_type.CalItem).ToList();
-
-                    //define NEW, MODIFIED and DELETED events of the local Outlook
-                    List<string> tmpNewOutlookIds = SyncHelpers.GetIDsOfNewItems(srcEvents, syncCache_events, OriginSystemEnum.Outlook); //all Outlook-ids which are NOT contained in sync cache => all NEW outlook ids
-                    List<string> tmpModifiedOutlookIds = SyncHelpers.GetIDsOfModifiedItems(srcEvents, syncCache_events, OriginSystemEnum.Outlook); //all Outlook-ids which were modified AFTER the last sync
-                    List<string> tmpDeletedOutlookIds = SyncHelpers.GetIDsOfDeletedItems(srcEvents, syncCache_events, OriginSystemEnum.Outlook); //all Outlook-ids which are synced but does not exist anymore => all DELETED outlook ids
-
-                    //define NEW, MODIFIED and DELETED events of Office 365
-                    List<string> tmpNewO365Ids = SyncHelpers.GetIDsOfNewItems(destEvents, syncCache_events, OriginSystemEnum.Office365); //all O365-ids which are NOT contained in sync cache => all NEW O365 ids
-                    List<string> tmpModifiedO365Ids = SyncHelpers.GetIDsOfModifiedItems(destEvents, syncCache_events, OriginSystemEnum.Office365); //all O365-ids which were modified AFTER the last sync
-                    List<string> tmpDeletedO365Ids = SyncHelpers.GetIDsOfDeletedItems(destEvents, syncCache_events, OriginSystemEnum.Office365); //all ids of sync cache which does NOT exist in O365 anymore => all DELETED o365 ids
-
-                    syncWork.AddRange(SyncHelpers.CollectOutlookSyncTasks(
-                        syncCache: syncCache_events,
-                        NewOutlookIds: tmpNewOutlookIds, ModifiedOutlookIds: tmpModifiedOutlookIds, DeletedOutlookIds: tmpDeletedOutlookIds,
-                        NewO365Ids: tmpNewO365Ids, ModifiedO365Ids: tmpModifiedO365Ids, DeletedO365Ids: tmpDeletedO365Ids,
-                        Type: SyncHelpers.ID_type.CalItem,
-                        clrNotExisting: clrNotExisting
-                        ));
-                    LogLn(" Done.", false, true);
+                    LogLn("Analyse sync tasks (NEW, MOD, DEL) ...");
+                    SyncHelpers.AnalyseSyncJobs(clrNotExisting, syncWork, srcEvents, destEvents, SyncHelpers.ID_type.CalItem);
+                    LogLn(" Done.");
 
                     LogLn("Create events in O365...");
                     int countOfcreateTasks = SyncHelpers.CreateItems(syncWork, srcEvents, o365_dest_calendar, SyncHelpers.ID_type.CalItem);
@@ -233,28 +215,9 @@ namespace CopyO2O
                     ContactCollectionType destContacts = o365_dest_contactfolder.GetContactsAsync().Result;
                     LogLn(" Done. " + destContacts.Count.ToString() + " found.", false, true);
 
-                    Log("Analyse sync tasks (NEW, MOD, DEL) ...");
-                    //get all events which are stored in the sync cache
-                    List<SyncHelpers.SyncInfo> syncCache_Contacts = SyncHelpers.syncCache.Where(x => x.Type == SyncHelpers.ID_type.Contact).ToList();
-
-                    //define NEW, MODIFIED and DELETED events of the local Outlook
-                    List<string> tmpNewOutlookIds = SyncHelpers.GetIDsOfNewItems(srcContacts, syncCache_Contacts, OriginSystemEnum.Outlook); //all Outlook-ids which are NOT contained in sync cache => all NEW outlook ids
-                    List<string> tmpModifiedOutlookIds = SyncHelpers.GetIDsOfModifiedItems(srcContacts, syncCache_Contacts, OriginSystemEnum.Outlook); //all Outlook-ids which were modified AFTER the last sync
-                    List<string> tmpDeletedOutlookIds = SyncHelpers.GetIDsOfDeletedItems(srcContacts, syncCache_Contacts, OriginSystemEnum.Outlook); //all Outlook-ids which are synced but does not exist anymore => all DELETED outlook ids
-
-                    //define NEW, MODIFIED and DELETED events of Office 365
-                    List<string> tmpNewO365Ids = SyncHelpers.GetIDsOfNewItems(destContacts, syncCache_Contacts, OriginSystemEnum.Office365); //all O365-ids which are NOT contained in sync cache => all NEW O365 ids
-                    List<string> tmpModifiedO365Ids = SyncHelpers.GetIDsOfModifiedItems(destContacts, syncCache_Contacts, OriginSystemEnum.Office365); //all O365-ids which were modified AFTER the last sync
-                    List<string> tmpDeletedO365Ids = SyncHelpers.GetIDsOfDeletedItems(destContacts, syncCache_Contacts, OriginSystemEnum.Office365); //all ids of sync cache which does NOT exist in O365 anymore => all DELETED o365 ids
-
-                    syncWork.AddRange(SyncHelpers.CollectOutlookSyncTasks(
-                        syncCache: syncCache_Contacts,
-                        NewOutlookIds: tmpNewOutlookIds, ModifiedOutlookIds: tmpModifiedOutlookIds, DeletedOutlookIds: tmpDeletedOutlookIds,
-                        NewO365Ids: tmpNewO365Ids, ModifiedO365Ids: tmpModifiedO365Ids, DeletedO365Ids: tmpDeletedO365Ids,
-                        Type: SyncHelpers.ID_type.Contact,
-                        clrNotExisting: clrNotExisting
-                        ));
-                    LogLn(" Done.", false, true);
+                    LogLn("Analyse sync tasks (NEW, MOD, DEL) ...");
+                    SyncHelpers.AnalyseSyncJobs(clrNotExisting, syncWork, srcContacts, destContacts, SyncHelpers.ID_type.Contact);
+                    LogLn(" Done.");
 
                     LogLn("Create contacts in O365...");
                     int countOfcreateTasks = SyncHelpers.CreateItems(syncWork, srcContacts, o365_dest_contactfolder, SyncHelpers.ID_type.Contact);
@@ -311,7 +274,5 @@ namespace CopyO2O
             Console.ReadLine();
 #endif
         }
-
-        
     }
 }

@@ -107,7 +107,7 @@ namespace CopyO2O
             }
         }
 
-        public static void O365_Item_Added(string newId, SyncInfo Item)
+        private static void O365_Item_Added(string newId, SyncInfo Item)
         {
             lock (syncCache)
             {
@@ -125,7 +125,7 @@ namespace CopyO2O
             }
         }
 
-        public static void O365_Item_Removed(SyncInfo Item)
+        private static void O365_Item_Removed(SyncInfo Item)
         {
             lock (syncCache)
             {
@@ -134,6 +134,40 @@ namespace CopyO2O
                 Program.LogLn("Item (" + Item.Type.ToString() + ") removed: " + Item.O365ID);
             }
         }
+
+        /// <summary>
+        /// Analyse all known items and systems and prepare all required information.
+        /// </summary>
+        /// <param name="clrNotExisting">If TRUE all items which were identified in O365 but not exist in Outlook will be removed as well</param>
+        /// <param name="syncWork">The queue for sync jobs.</param>
+        /// <param name="srcItems">All items of the source system (Outlook)</param>
+        /// <param name="destItems">All items of the destination system (Office 365)</param>
+        /// <param name="Type">Type of the items to be processed (e.g. events or contacts)</param>
+        /// 
+        public static void AnalyseSyncJobs(bool clrNotExisting, List<SyncHelpers.SyncInfo> syncWork, IEnumerable<SyncElement> srcItems, IEnumerable<SyncElement> destItems, SyncHelpers.ID_type Type)
+        {
+            //get all events which are stored in the sync cache
+            List<SyncHelpers.SyncInfo> syncCache_filtered = SyncHelpers.syncCache.Where(x => x.Type == Type).ToList();
+
+            //define NEW, MODIFIED and DELETED events of the local Outlook
+            List<string> tmpNewOutlookIds = SyncHelpers.GetIDsOfNewItems(srcItems, syncCache_filtered, OriginSystemEnum.Outlook); //all Outlook-ids which are NOT contained in sync cache => all NEW outlook ids
+            List<string> tmpModifiedOutlookIds = SyncHelpers.GetIDsOfModifiedItems(srcItems, syncCache_filtered, OriginSystemEnum.Outlook); //all Outlook-ids which were modified AFTER the last sync
+            List<string> tmpDeletedOutlookIds = SyncHelpers.GetIDsOfDeletedItems(srcItems, syncCache_filtered, OriginSystemEnum.Outlook); //all Outlook-ids which are synced but does not exist anymore => all DELETED outlook ids
+
+            //define NEW, MODIFIED and DELETED events of Office 365
+            List<string> tmpNewO365Ids = SyncHelpers.GetIDsOfNewItems(destItems, syncCache_filtered, OriginSystemEnum.Office365); //all O365-ids which are NOT contained in sync cache => all NEW O365 ids
+            List<string> tmpModifiedO365Ids = SyncHelpers.GetIDsOfModifiedItems(destItems, syncCache_filtered, OriginSystemEnum.Office365); //all O365-ids which were modified AFTER the last sync
+            List<string> tmpDeletedO365Ids = SyncHelpers.GetIDsOfDeletedItems(destItems, syncCache_filtered, OriginSystemEnum.Office365); //all ids of sync cache which does NOT exist in O365 anymore => all DELETED o365 ids
+
+            syncWork.AddRange(SyncHelpers.CollectOutlookSyncTasks(
+                syncCache: syncCache_filtered,
+                NewOutlookIds: tmpNewOutlookIds, ModifiedOutlookIds: tmpModifiedOutlookIds, DeletedOutlookIds: tmpDeletedOutlookIds,
+                NewO365Ids: tmpNewO365Ids, ModifiedO365Ids: tmpModifiedO365Ids, DeletedO365Ids: tmpDeletedO365Ids,
+                Type: Type,
+                clrNotExisting: clrNotExisting
+                ));
+        }
+
         /// <summary>
         /// Creates items to O365
         /// </summary>
@@ -190,7 +224,7 @@ namespace CopyO2O
         /// <param name="clrNotExisting">If TRUE all items which were identified in O365 but not exist in Outlook will be removed as well</param>
         /// <returns>A list of sync jobs FROM Outlook TO Office365.</returns>
         /// 
-        public static List<SyncHelpers.SyncInfo> CollectOutlookSyncTasks(
+        private static List<SyncHelpers.SyncInfo> CollectOutlookSyncTasks(
             List<SyncHelpers.SyncInfo> syncCache,
             List<string> NewOutlookIds, List<string> ModifiedOutlookIds, List<string> DeletedOutlookIds,
             List<string> NewO365Ids, List<string> ModifiedO365Ids, List<string> DeletedO365Ids,
@@ -235,7 +269,7 @@ namespace CopyO2O
         /// <param name="System">System to analyse (Outlook or Office 365)</param>
         /// <returns>Returns a list of Ids of new/added items since the last sync run.</returns>
         /// 
-        public static List<string> GetIDsOfNewItems(IEnumerable<SyncElement> SrcItems, List<SyncHelpers.SyncInfo> SyncCache_Items, OriginSystemEnum System)
+        private static List<string> GetIDsOfNewItems(IEnumerable<SyncElement> SrcItems, List<SyncHelpers.SyncInfo> SyncCache_Items, OriginSystemEnum System)
         {
             List<string> result = new List<string>();
 
@@ -259,7 +293,7 @@ namespace CopyO2O
         /// <param name="System">System to analyse (Outlook or Office 365)</param>
         /// <returns>Returns a list of Ids of modified items since the last sync run.</returns>
         /// 
-        public static List<string> GetIDsOfModifiedItems(IEnumerable<SyncElement> SrcItems, List<SyncHelpers.SyncInfo> SyncCache_Items, OriginSystemEnum System)
+        private static List<string> GetIDsOfModifiedItems(IEnumerable<SyncElement> SrcItems, List<SyncHelpers.SyncInfo> SyncCache_Items, OriginSystemEnum System)
         {
             List<string> tmpModifiedIds = new List<string>(); //all ids which were modified AFTER the last sync
             {
@@ -281,7 +315,7 @@ namespace CopyO2O
                                     break;
                             }
                         }
-                        catch (NullReferenceException e)
+                        catch (NullReferenceException)
                         {
                             //not found -> nothing to do
                             Program.LogLn("Item not found: " + item.OutlookID + " > " + item.O365ID);
@@ -300,7 +334,7 @@ namespace CopyO2O
         /// <param name="System">System to analyse (Outlook or Office 365)</param>
         /// <returns>Returns a list of Ids of removed items since the last sync run.</returns>
         /// 
-        public static List<string> GetIDsOfDeletedItems(IEnumerable<SyncElement> SrcItems, List<SyncHelpers.SyncInfo> SyncCache_Items, OriginSystemEnum System)
+        private static List<string> GetIDsOfDeletedItems(IEnumerable<SyncElement> SrcItems, List<SyncHelpers.SyncInfo> SyncCache_Items, OriginSystemEnum System)
         {
             List<string> result = new List<string>();
 

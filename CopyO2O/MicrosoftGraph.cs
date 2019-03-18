@@ -118,8 +118,8 @@ namespace CopyO2O.Office365
         public ItemType this[string Id] { get => this.Get(Id); }
         public abstract ItemType Get(string Id);
 
-        public abstract Task<string> AddAsync(object Item);
-        public abstract Task<bool> RemoveAsync(string Id);
+        //public abstract Task<string> AddAsync(object Item);
+        //public abstract Task<bool> RemoveAsync(string Id);
 
         //constructor
         public GraphContainer(object Parent, string Name, string Id)
@@ -137,28 +137,7 @@ namespace CopyO2O.Office365
 
         Task<string> AddAsync(object Item);
         Task<bool> RemoveAsync(string Id);
-
-        //constructor
-        /*public GraphContainer(object Parent, string Name, string Id)
-        {
-            parent = Parent;
-            name = Name;
-            id = Id;
-        }*/
     }
-
-    /*public abstract class GraphItem<OriginType>
-    {
-        public abstract string Id { get; }
-        public abstract string Name { get; }
-
-        public OriginType OriginItem;
-
-        public GraphItem(OriginType item)
-        {
-            this.OriginItem = item;
-        }
-    }*/
 
     public class Calendars : GraphContainerCollection<Calendar>
     {
@@ -331,20 +310,57 @@ namespace CopyO2O.Office365
             options.Add(new QueryOption("startDateTime", DateNTime.ConvertDateTimeToISO8016(From)));
             options.Add(new QueryOption("endDateTime", DateNTime.ConvertDateTimeToISO8016(To)));
 
-            ICalendarCalendarViewCollectionPage items = await (parent as Calendars).connection.GetGraphClient().Me.Calendars[this.Id].CalendarView.Request(options).GetAsync();
-            bool requestNextPage = false;
+            bool retry = false;
+            int retryCounter = 0;
             do
             {
-                requestNextPage = (items.NextPageRequest != null);
-                foreach (Microsoft.Graph.Event aptmItem in items)
+                try
                 {
-                    result.Add(aptmItem);
-                }
+                    ICalendarCalendarViewCollectionPage items = await (parent as Calendars).connection.GetGraphClient().Me.Calendars[this.Id].CalendarView.Request(options).GetAsync();
+                    bool requestNextPage = false;
+                    do
+                    {
+                        requestNextPage = (items.NextPageRequest != null);
+                        foreach (Microsoft.Graph.Event aptmItem in items)
+                        {
+                            result.Add(aptmItem);
+                        }
 
-                if (requestNextPage)
-                    items = await items.NextPageRequest.GetAsync();
-            }
-            while (requestNextPage);
+                        if (requestNextPage)
+                            items = await items.NextPageRequest.GetAsync();
+                    }
+                    while (requestNextPage);
+
+                    return result; //quit and return found objects
+                }
+                catch (Microsoft.Graph.ServiceException e)
+                {
+                    Debug.WriteLine(e);
+                    retry = false;
+
+                    //if service is busy, too many connection, aso. retry request
+                    if (e.StatusCode.ToString() == "429")
+                    {
+                        int sleeptime = (parent as Calendars).connection.DefaultRetryDelay;
+
+                        if (e.ResponseHeaders.RetryAfter != null)
+                            sleeptime = e.ResponseHeaders.RetryAfter.Delta.GetValueOrDefault(new TimeSpan(0, 0, 1)).Milliseconds;
+
+                        System.Threading.Thread.Sleep(sleeptime);
+                        retry = true;
+                    }
+                    //if the specified object was not found in the store => know BUG in O365; could be a false negative!
+                    //therefore: Retry one more time after one second.
+                    else
+                    {
+                        System.Threading.Thread.Sleep(1000);
+                        retry = true;
+                        retryCounter = retryCounter + 98;
+                    }
+
+                    retryCounter++;
+                }
+            } while (retry && (retryCounter <= 100)); //max 100 loops
 
             return result;
         }
@@ -460,7 +476,7 @@ namespace CopyO2O.Office365
             return await this.GetItemsDeltaAsync(DateTime.Now, DateTime.Now, false);
         }
 
-        public override async Task<string> AddAsync(object item)
+        public async Task<string> AddAsync(object item)
         {
             bool retry = false;
 
@@ -529,6 +545,8 @@ namespace CopyO2O.Office365
                 default: newEvent.ShowAs = Microsoft.Graph.FreeBusyStatus.Free; break;
             }
             
+            newEvent.ICalUId = item.OriginId; //set but ignored by MS Graph *hmpf*
+
             return await this.AddAsync(newEvent);
         }
 
@@ -603,7 +621,7 @@ namespace CopyO2O.Office365
             } while (retry == true);
         }
 
-        public override async Task<bool> RemoveAsync(string eventId)
+        public async Task<bool> RemoveAsync(string eventId)
         {
             bool retry = false;
 
@@ -1040,7 +1058,7 @@ namespace CopyO2O.Office365
         /// <param name="item">New contact info.</param>
         /// <returns>Return the id of the new created contact.</returns>
         /// 
-        public override async Task<string> AddAsync(object item)
+        public async Task<string> AddAsync(object item)
         {
             if (item is Microsoft.Graph.Contact)
             {
@@ -1252,7 +1270,7 @@ namespace CopyO2O.Office365
         /// </summary>
         /// <param name="itemId">ID of the contact to delete</param>
         /// 
-        public override async Task<bool> RemoveAsync(string itemId)
+        public async Task<bool> RemoveAsync(string itemId)
         {
             bool retry = false;
 
