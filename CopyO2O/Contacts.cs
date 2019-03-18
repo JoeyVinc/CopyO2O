@@ -27,12 +27,9 @@ namespace CopyO2O
         public string Title;
     }
 
-    public class ContactType
+    public class ContactType : SyncElement
     {
         public Boolean HasPhoto { get { return this.PictureTmpFilename != null; } }
-
-        public string OriginId;
-        public DateTime? LastModTime;
 
         public string SaveAs;
         public string DisplayName;
@@ -64,5 +61,5 @@ namespace CopyO2O
         public string PictureTmpFilename;
     }
 
-    public class ContactCollectionType : List<ContactType> { }
+    public class ContactCollectionType : SyncElementCollection<ContactType> { }
 }

@@ -223,6 +223,7 @@ namespace CopyO2O.Outlook
             {
                 ContactType tmpItem = new ContactType();
                 tmpItem.OriginId = item.EntryID;
+                tmpItem.OriginSystem = OriginSystemEnum.Outlook;
                 tmpItem.LastModTime = item.LastModificationTime;
 
                 tmpItem.DisplayName = item.FullName;
@@ -304,7 +305,7 @@ namespace CopyO2O.Outlook
     public class Application
     {
         OutlookInterop.Application appInstance;
-        bool outlookAlreadyRunning = false;
+        private bool outlookAlreadyRunning = false;
         private List<Calendar> alreadyOpenedCalendars = new List<Calendar>(); //for faster access and controlled destroy of the calendar objects
         private List<ContactFolder> alreadyOpenedContactFolders = new List<ContactFolder>(); //for faster access and controlled destroy of the contactfolder objects
 

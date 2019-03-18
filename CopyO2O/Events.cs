@@ -41,18 +41,14 @@ namespace CopyO2O
         public static int GetMonthInt(MonthsEnum month) { return (int)month; }
     }
 
-    public class Event
+    public class Event : SyncElement
     {
         public enum ImportanceEnum { Low, Normal, High }
         public enum StatusEnum { Free, Tentative, Busy, OutOfOffice, ElseWhere }
         public enum TypeEnum { SingleEvent, SeriesMaster, SeriesOccurence, SeriesException }
-        public enum EventOriginEnum { Outlook, Office365 }
 
-        protected EventOriginEnum? _eventOrigin;
-        public EventOriginEnum? EventOrigin { get => _eventOrigin; }
-
-        public string OriginId;
-        public DateTime LastModTime;
+//        public string OriginId;
+//        public DateTime LastModTime;
 
         public TypeEnum? EventType = null;
         public RecurrencePattern Recurrence = null;
@@ -81,56 +77,8 @@ namespace CopyO2O
         protected bool? _isRemoved = null;
         public bool? IsRemoved { get => _isRemoved; }
 
-        public virtual string InternalId => MD5.GetMD5Hash(this.EventOrigin.GetType().ToString() + this.OriginId);
-
         public Events Exceptions { get; set; }
-
-//        public Event() { }
-
-        public override bool Equals(object obj)
-        {
-            return (this.InternalId.Equals(((Event)obj).InternalId) && this.OriginId.Equals(((Event)obj).OriginId));
-        }
-
-        public override int GetHashCode()
-        {
-            return base.GetHashCode();
-        }
     }
 
-    public class Events : List<Event>
-    {
-        public Events() { }
-        public Events(List<Event> items)
-        {
-            this.Clear();
-            foreach (Event item in items)
-            {
-                this.Add(item);
-            }
-        }
-
-        public Event this[string internalId]
-        {
-            get
-            {
-                return this.Find(x => x.InternalId.Equals(internalId));
-            }
-        }
-
-        public Event GetEventByOriginId(string Id, Event.EventOriginEnum origin)
-        {
-            return this.Find(x => (x.OriginId.Equals(Id) && x.EventOrigin.Equals(origin)));
-        }
-
-        public new Events FindAll(Predicate<Event> match)
-        {
-            return new Events(base.FindAll(match));
-        }
-
-        public bool Remove(string internalId)
-        {
-            return this.RemoveAll(x => x.InternalId.Equals(internalId)) > 0;
-        }
-    }
+    public class Events : SyncElementCollection<Event> { }
 }
