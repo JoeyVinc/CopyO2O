@@ -16,7 +16,7 @@ namespace CopyO2O
         static bool logOutput = false;
 #endif
         public static void Log(string value, bool toConsole = false, bool suppressDateTime = false) { Output.Print(value: (!suppressDateTime ? DateTime.Now.ToString() + " - " : "") + value, logEnabled: logOutput, logFile: logFile); if (((logFile != null) || !logOutput) && toConsole) Console.Write(value); }
-        public static void LogLn(string value, bool toConsole = false, bool suppressDateTime = false) { Log(value + "\n", toConsole, suppressDateTime); }
+        public static void LogLn(string value, bool toConsole = false, bool suppressDateTime = false) { Log(value + "\r\n", toConsole, suppressDateTime); }
         public static string logFile = null;
 
         static void Main(string[] args)
@@ -125,14 +125,14 @@ namespace CopyO2O
             catch (Exception e)
             {
                 LogLn("Error: " + e.Message + "\n", true);
-                LogLn("Parameters:\n"
-                    + "/CAL:\"<source>\";\"<destination>\" : Calendar source and destination\n"
-                    + "/CON:\"<source>\";\"<destination>\" : Contacts source and destination\n"
-                    + "[opt] /from:<date>              : for calendar: First date to sync (DD.MM.YYYY) or relative to today (in days; eg. -10)\n"
-                    + "[opt] /to:<date>                : for calendar: Last date to sync (DD.MM.YYYY) or relative to today (in days; eg. 8)\n"
-                    + "[opt] /clear:<days>             : for calendar: Clear <days> in the past (from 'from' back)\n"
-                    + "[opt] /proxy:<address>          : set if an explicit proxy should be used for connection\n"
-                    + "[opt] /log                      : Verbose logging\n\n"
+                LogLn("Parameters:\r\n"
+                    + "/CAL:\"<source>\";\"<destination>\" : Calendar source and destination\r\n"
+                    + "/CON:\"<source>\";\"<destination>\" : Contacts source and destination\r\n"
+                    + "[opt] /from:<date>              : for calendar: First date to sync (DD.MM.YYYY) or relative to today (in days; eg. -10)\r\n"
+                    + "[opt] /to:<date>                : for calendar: Last date to sync (DD.MM.YYYY) or relative to today (in days; eg. 8)\r\n"
+                    + "[opt] /clear:<days>             : for calendar: Clear <days> in the past (from 'from' back)\r\n"
+                    + "[opt] /proxy:<address>          : set if an explicit proxy should be used for connection\r\n"
+                    + "[opt] /log                      : Verbose logging\r\n\r\n"
                     + "Example: CopyO2O /CAL:\"Hans.Mustermann@company.com\\Calendar\";\"Business\" /from:-7 /to:30 /clear:14", true);
                 System.Environment.Exit(-1);
             }
@@ -239,11 +239,11 @@ namespace CopyO2O
             }
             catch (AggregateException ae)
             {
-                ae.Handle((e) => { LogLn(" Error occured: " + e.Message + "\nConnection could not be establised! Proxy?", true); return true; });
+                ae.Handle((e) => { LogLn(" Error occured: " + e.Message, true); return true; });
             }
             catch (System.Net.WebException e)
             {
-                LogLn(" Error occured: " + e.Message + "\nConnection could not be establised! Proxy?", true);
+                LogLn(" Error occured: " + e.Message + "\r\nConnection could not be establised! Proxy?", true);
             }
             catch (Exception e)
             {
