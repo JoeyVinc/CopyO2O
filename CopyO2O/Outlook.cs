@@ -44,7 +44,7 @@ namespace CopyO2O.Outlook
             foreach (OutlookInterop.AppointmentItem aptmItem in eventsFiltered)
             {
                 Event tmpEvent = new Event();
-                tmpEvent.OriginId = aptmItem.EntryID;
+                tmpEvent.OriginId = aptmItem.EntryID + "_" + aptmItem.Start.ToFileTimeUtc().ToString() + aptmItem.Duration.ToString();
                 tmpEvent.LastModTime = aptmItem.LastModificationTime;
 
                 tmpEvent.Subject = aptmItem.Subject;
