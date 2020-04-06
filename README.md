@@ -9,7 +9,8 @@ Remark: no synchronisation! Items of destination (Office 365) will be deleted wi
 /CON:"<source>";"<destination>" : Contacts source and destination  
 [opt] /from:<date>              : for calendar: First date to sync (DD.MM.YYYY) or relative to today (in days; eg. -10)  
 [opt] /to:<date>                : for calendar: Last date to sync (DD.MM.YYYY) or relative to today (in days; eg. 8)  
-[opt] /clear:<days>             : for calendar: Clear <days> in the past (from 'from' back)  
+[opt] /clear:<days>             : for calendar: Clear <days> in the past (from 'from' back)
+[opt] /DNE                      : if the process has started a local Outlook instance suppress the exit
 [opt] /log                      : Verbose logging
 ```
 
