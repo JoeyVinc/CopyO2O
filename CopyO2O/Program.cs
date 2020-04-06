@@ -157,7 +157,7 @@ namespace CopyO2O
             try
             {
                 Log("Open Outlook...");
-                outlookApp = new Outlook.Application();
+                outlookApp = new Outlook.Application(exitLocalOutlookAfterProcessing);
                 LogLn(" Done.", false, true);
 
                 Log("Connect to Office365...");
