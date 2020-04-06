@@ -35,6 +35,7 @@ namespace CopyO2O
             string contacts_destination_Name = "";
             string proxy = "";
             bool clrNotExisting = true; //clear every items of target which does not exist on source side
+            bool exitLocalOutlookAfterProcessing = true; //if the app has opened a local Outlook instance exit it at the end
 
             bool SyncCAL() { return (calendar_source_Name != "") && (calendar_destination_Name != ""); }
             bool SyncCON() { return (contacts_source_Name != "") && (contacts_destination_Name != ""); }
@@ -98,6 +99,9 @@ namespace CopyO2O
                         case "/PROXY":
                             proxy = parValue;
                             break;
+                        case "/DNE":
+                            exitLocalOutlookAfterProcessing = false;
+                            break;
                         case "/LOG":
                             logOutput = true;
                             if (parValue != "")
@@ -132,6 +136,7 @@ namespace CopyO2O
                     + "[opt] /to:<date>                : for calendar: Last date to sync (DD.MM.YYYY) or relative to today (in days; eg. 8)\r\n"
                     + "[opt] /clear:<days>             : for calendar: Clear <days> in the past (from 'from' back)\r\n"
                     + "[opt] /proxy:<address>          : set if an explicit proxy should be used for connection\r\n"
+                    + "[opt] /DNE                      : if the process has started a local Outlook instance suppress the exit\r\n"
                     + "[opt] /log                      : Verbose logging\r\n\r\n"
                     + "Example: CopyO2O /CAL:\"Hans.Mustermann@company.com\\Calendar\";\"Business\" /from:-7 /to:30 /clear:14", true);
                 System.Environment.Exit(-1);

@@ -306,11 +306,14 @@ namespace CopyO2O.Outlook
     {
         OutlookInterop.Application appInstance;
         private bool outlookAlreadyRunning = false;
+        private bool exitOutlookOnQuit = true;
         private List<Calendar> alreadyOpenedCalendars = new List<Calendar>(); //for faster access and controlled destroy of the calendar objects
         private List<ContactFolder> alreadyOpenedContactFolders = new List<ContactFolder>(); //for faster access and controlled destroy of the contactfolder objects
 
-        public Application()
+        public Application(bool exitOutlookOnQuit = true)
         {
+            this.exitOutlookOnQuit = exitOutlookOnQuit;
+
             try
             {
                 appInstance = (OutlookInterop.Application)System.Runtime.InteropServices.Marshal.GetActiveObject("Outlook.Application");
@@ -335,7 +338,7 @@ namespace CopyO2O.Outlook
                 appInstance.Session.SendAndReceive(false);
 
                 //if outlook was not already running
-                if (!outlookAlreadyRunning)
+                if (!outlookAlreadyRunning && exitOutlookOnQuit)
                 {
                     for (int i = 0; i < alreadyOpenedCalendars.Count; i++)
                     { alreadyOpenedCalendars[i].Free(); }
