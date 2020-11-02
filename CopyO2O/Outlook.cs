@@ -1,10 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using OutlookInterop = Microsoft.Office.Interop.Outlook;
 using System.Diagnostics;
+using System.Linq;
+using System.Runtime.InteropServices;
+using OutlookInterop = Microsoft.Office.Interop.Outlook;
 
 namespace CopyO2O.Outlook
 {
@@ -291,9 +290,11 @@ namespace CopyO2O.Outlook
                     if (tmpPhotofile != null)
                     {
                         string tmpFilename = Environment.GetEnvironmentVariable("TEMP").TrimEnd('\\') + '\\' + item.EntryID + ".jpg";
+
                         tmpPhotofile.SaveAsFile(tmpFilename);
                         tmpItem.PictureTmpFilename = tmpFilename;
                     }
+                    Marshal.ReleaseComObject(tmpPhotofile);
                 }
 
                 result.Add(tmpItem);
@@ -374,7 +375,7 @@ namespace CopyO2O.Outlook
                     result = new Calendar(tmpFolder);
                     this.alreadyOpenedCalendars.Add(result);
                 }
-            return result;
+                return result;
             }
             catch (Exception e)
             {

@@ -1,10 +1,6 @@
-﻿using System;
+﻿using Commonfunctions.Logging;
+using System;
 using System.Collections.Generic;
-using System.Linq;
-using Commonfunctions.Logging;
-using System.Diagnostics;
-using System.Threading.Tasks;
-using System.IO;
 
 namespace CopyO2O
 {
@@ -112,7 +108,7 @@ namespace CopyO2O
 
                 //check if mandatory parameters were set stop execution
                 if (SyncCAL() && (calendar_source_Name.Equals("") || !calendar_source_Name.Contains("\\")))
-                    throw new Exception("Source calender path not valid.");
+                    throw new Exception("Source calendar path not valid.");
 
                 //check if mandatory parameters were set stop execution
                 if (SyncCON() && (contacts_source_Name.Equals("") || !contacts_source_Name.Contains("\\")))
@@ -130,8 +126,8 @@ namespace CopyO2O
             {
                 LogLn("Error: " + e.Message + "\r\n", true);
                 LogLn("Parameters:\r\n"
-                    + "/CAL:\"<source>\";\"<destination>\" : Calendar source and destination\r\n"
                     + "/CON:\"<source>\";\"<destination>\" : Contacts source and destination\r\n"
+                    + "/CAL:\"<source>\";\"<destination>\" : Calendar source and destination\r\n"
                     + "[opt] /from:<date>              : for calendar: First date to sync (DD.MM.YYYY) or relative to today (in days; eg. -10)\r\n"
                     + "[opt] /to:<date>                : for calendar: Last date to sync (DD.MM.YYYY) or relative to today (in days; eg. 8)\r\n"
                     + "[opt] /clear:<days>             : for calendar: Clear <days> in the past (from 'from' back)\r\n"
